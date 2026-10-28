@@ -6,6 +6,7 @@ Terraform으로 AWS 기반을 만들고 Argo CD로 EKS 애플리케이션과 관
 - [Terraform 실행 그룹 IAM 정책](iam/README.md)
 - [EKS 기반 작업계획과 실행 안내](docs/EKS-기반-작업계획.md)
 - [GitOps 기반 코드와 검증](docs/GitOps-기반-작업계획.md)
+- [다음 세션 작업 인수인계](docs/작업-인수인계.md)
 - 현재 구현: VPC·EKS·controller IAM/Secret 메타데이터, 별도 Argo CD bootstrap, GitOps 공통 차트. VPC는 이전에 삭제됐고 현재 코드는 AWS에 적용하지 않았습니다.
 - 초기 구성: 동일 EKS의 고정 CPU 워커 3대(app/platform/data). PostgreSQL·Redis도 data 워커의 StatefulSet으로 배포합니다. AI는 FastAPI를 통해 Bedrock Nova 2 Lite와 Titan V2를 호출합니다.
 - 현재 단계: AWS 생성 없이 VPC·EKS 코드를 검토하고 검증합니다. 실제 배포나 사용자 apply 없이 후속 코드를 계속 작성합니다. 관리자 IP·IAM·버전·예산의 실제 값은 배포 준비 시 확정합니다.
