@@ -74,7 +74,7 @@ resource "aws_iam_role_policy" "cert_manager" {
   policy = data.aws_iam_policy_document.cert_manager.json
 }
 resource "aws_secretsmanager_secret" "workload" {
-  for_each                = toset(["backend", "data", "ai"])
+  for_each                = toset(["backend", "data", "ai", "monitoring"])
   name                    = "nerdnam/dev/${each.value}"
   description             = "${each.value} runtime JSON; values supplied outside Terraform"
   recovery_window_in_days = 7

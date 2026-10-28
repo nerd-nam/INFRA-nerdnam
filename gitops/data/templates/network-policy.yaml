@@ -40,3 +40,43 @@ spec:
             matchLabels: {app: {{ $app }}}
       ports: [{protocol: TCP, port: {{ $port }}}]
     {{- end }}
+{{- /* 7단계: exporter → PostgreSQL/Redis, Prometheus(monitoring) → exporter */}}
+{{- range $app, $port := $targets }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-exporter-to-{{ $app }}
+  namespace: data
+spec:
+  podSelector:
+    matchLabels: {app: {{ $app }}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: {{ $app }}-exporter}
+      ports: [{protocol: TCP, port: {{ $port }}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $app }}-exporter
+  namespace: data
+spec:
+  podSelector:
+    matchLabels: {app: {{ $app }}-exporter}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports: [{protocol: TCP, port: {{ (index $.Values.exporters $app).port }}}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: {{ $app }}}
+      ports: [{protocol: TCP, port: {{ $port }}}]
+{{- end }}

@@ -11,8 +11,10 @@ spec:
     - https://traefik.github.io/charts
     - https://charts.jetstack.io
     - https://charts.external-secrets.io
+    - https://prometheus-community.github.io/helm-charts
+    - https://grafana.github.io/helm-charts
   destinations:
-    {{- range list "argocd" "kube-system" "traefik" "cert-manager" "external-secrets" "nerdnam" "data" }}
+    {{- range list "argocd" "kube-system" "traefik" "cert-manager" "external-secrets" "nerdnam" "data" "monitoring" }}
     - namespace: {{ . }}
       server: https://kubernetes.default.svc
     {{- end }}

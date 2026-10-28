@@ -47,6 +47,24 @@ spec:
             matchLabels: {app: web}
       ports: [{protocol: TCP, port: {{ $v.api.port }}}]
 ---
+# 7단계: Prometheus(monitoring) → BE 관리 포트. 공개 진입(Traefik)·web 은 관리 포트에 닿지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-api
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports: [{protocol: TCP, port: {{ $v.api.managementPort }}}]
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

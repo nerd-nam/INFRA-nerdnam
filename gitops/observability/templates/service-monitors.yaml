@@ -1,0 +1,30 @@
+{{- /* kube-prometheus-stack 의 Prometheus 가 라벨 없이도 고른다(serviceMonitorSelectorNilUsesHelmValues: false). */}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api
+  namespace: nerdnam
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: api}
+  endpoints:
+    - port: management                 # BE 관리 포트 8081 (공개 경로에 없음)
+      path: /actuator/prometheus
+      interval: {{ .Values.scrapeInterval }}
+{{- range $name := list "postgres" "redis" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}-exporter
+  namespace: data
+spec:
+  selector:
+    matchLabels: {app: {{ $name }}-exporter}
+  endpoints:
+    - port: metrics
+      interval: {{ $.Values.scrapeInterval }}
+      {{- if eq $name "postgres" }}
+      scrapeTimeout: 20s
+      {{- end }}
+{{- end }}

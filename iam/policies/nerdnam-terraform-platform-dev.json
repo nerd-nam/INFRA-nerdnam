@@ -60,7 +60,8 @@
       "Resource": [
         "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/backend-??????",
         "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/data-??????",
-        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-??????"
+        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-??????",
+        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/monitoring-??????"
       ],
       "Condition": {
         "StringEquals": {

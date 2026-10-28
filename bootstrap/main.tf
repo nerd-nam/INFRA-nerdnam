@@ -27,6 +27,7 @@ locals {
     publicSubnetIds = data.terraform_remote_state.aws.outputs.network.public_subnet_ids
     hostedZoneId    = data.terraform_remote_state.aws.outputs.platform.route53_zone_id
     secretArns      = data.terraform_remote_state.aws.outputs.platform.secret_arns
+    lokiBucket      = data.terraform_remote_state.aws.outputs.observability.loki_bucket
     hostname        = var.sample_hostname
     appHostname     = var.app_hostname
     acmeEmail       = var.acme_email

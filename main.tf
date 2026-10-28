@@ -33,6 +33,15 @@ module "platform" {
   route53_zone_id = var.route53_zone_id
 }
 
+module "observability" {
+  source       = "./modules/observability"
+  name         = "nerdnam-dev"
+  region       = "ap-northeast-2"
+  account_id   = data.aws_caller_identity.current.account_id
+  cluster_name = module.eks.cluster_name
+  cluster_arn  = module.eks.cluster_arn
+}
+
 module "workload" {
   source              = "./modules/workload"
   name                = "nerdnam-dev"

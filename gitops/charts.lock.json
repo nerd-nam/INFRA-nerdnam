@@ -37,5 +37,26 @@
     "appVersion": "v2.14.0",
     "url": "https://github.com/external-secrets/external-secrets/releases/download/helm-chart-2.14.0/external-secrets-2.14.0.tgz",
     "digest": "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34"
+  },
+  "kube-prometheus-stack": {
+    "repo": "https://prometheus-community.github.io/helm-charts",
+    "version": "92.7.0",
+    "appVersion": "v0.94.1",
+    "url": "https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-92.7.0/kube-prometheus-stack-92.7.0.tgz",
+    "digest": "af35d3e93750ce46d90cbb6537483c8fa914f19fbffa19fbabcb2825181a0f1a"
+  },
+  "loki": {
+    "repo": "https://grafana.github.io/helm-charts",
+    "version": "7.3.0",
+    "appVersion": "3.6.12",
+    "url": "https://github.com/grafana/helm-charts/releases/download/helm-loki-7.3.0/loki-7.3.0.tgz",
+    "digest": "04a339f712d770a1f599f05fc0a5a3cde18e43914e49ae6a49f7171be86bcc09"
+  },
+  "alloy": {
+    "repo": "https://grafana.github.io/helm-charts",
+    "version": "1.13.1",
+    "appVersion": "v1.20.1",
+    "url": "https://github.com/grafana/helm-charts/releases/download/alloy-1.13.1/alloy-1.13.1.tgz",
+    "digest": "6c2b7df23e39438bb11f1e1fcf19eb9eb7c8bfeab7d49b7c975b6212abd0f99a"
   }
 }

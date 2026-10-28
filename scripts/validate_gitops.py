@@ -17,7 +17,14 @@ import jsonschema
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'apps', 'sample']
+
+
+class Loader(yaml.SafeLoader):
+    """YAML 1.1 의 '=' 값 태그를 문자열로 읽는다(prometheus-operator CRD 의 enum 에 '=' 가 있다)."""
+
+
+Loader.add_constructor('tag:yaml.org,2002:value', lambda loader, node: loader.construct_scalar(node))
+LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'apps', 'observability', 'sample']
 APP_VALUE_FILES = {'apps': ['images.yaml']}
 # Kubernetes 1.35 공식 OpenAPI. 자체 chart 의 기본 객체(Deployment 등)를 모르는 필드·형식 오류까지 엄격히 검사한다.
 K8S_OPENAPI = {
@@ -25,7 +32,8 @@ K8S_OPENAPI = {
     'digest': '483500149ee52ce5753d75f5639101d985bb4f5e902cc05b1ba7627465d62446',
 }
 # Secrets Manager nerdnam/dev/data JSON 키 계약 (docs/데이터-계층-작업계획.md)
-DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password'}
+DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password',
+                    'postgres-exporter-password', 'redis-exporter-password'}
 BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
                      'SPRING_FLYWAY_PASSWORD': 'postgres-migrator-password',
                      'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password'}
@@ -52,7 +60,7 @@ def main():
         files = [x for value in [*extra, values] for x in ('-f', str(value))]
         raw = run([args.helm, 'template', name, str(chart), '--namespace', namespace,
                    '--kube-version', '1.35.0', '--include-crds', *files])
-        docs = [x for x in yaml.safe_load_all(raw) if x]
+        docs = [x for x in yaml.load_all(raw, Loader=Loader) if x]
         assert len({(x['apiVersion'], x['kind'], x['metadata'].get('namespace', namespace), x['metadata']['name']) for x in docs}) == len(docs), name
         return docs
 
@@ -108,7 +116,7 @@ def main():
     for docs in local.values():
         for doc in docs:
             group = doc['apiVersion'].split('/')[0]
-            if group in ['argoproj.io', 'cert-manager.io', 'external-secrets.io']:
+            if group in ['argoproj.io', 'cert-manager.io', 'external-secrets.io', 'monitoring.coreos.com']:
                 schema = schemas[(doc['apiVersion'], doc['kind'])]
                 jsonschema.Draft7Validator(schema).validate(doc)
                 custom_count += 1
@@ -139,11 +147,15 @@ def main():
                 continue
             pod = doc['spec']['template']['spec']
             expected = 'app' if chart == 'traefik' else 'platform'
+            if chart == 'kube-prometheus-stack' and doc['kind'] == 'Job' and 'admission' not in doc['metadata']['name']:
+                raise AssertionError(f'unexpected job {doc["metadata"]["name"]}')
             assert pod.get('nodeSelector', {}).get('workload') == expected, f'{chart}/{doc["metadata"]["name"]}: placement'
             if expected == 'platform':
                 assert any(t.get('key') == 'dedicated' and t.get('value') == 'platform' and t.get('effect') == 'NoSchedule'
                            for t in pod.get('tolerations', [])), f'{chart}: missing toleration'
             scheduled += 1
+
+    obs_count = check_observability(local, upstream)
 
     by_kind = {doc['kind']: doc for doc in local['sample']}
     assert by_kind['Ingress']['spec']['tls'][0]['secretName'] == by_kind['Certificate']['spec']['secretName']
@@ -154,7 +166,7 @@ def main():
     assert storage['parameters']['encrypted'] == 'true'
     store = next(x for x in local['foundation'] if x['kind'] == 'ClusterSecretStore')
     assert 'auth' not in store['spec']['provider']['aws'], 'Pod Identity uses ambient credentials'
-    assert store['spec']['conditions'][0]['namespaces'] == ['nerdnam', 'data']
+    assert store['spec']['conditions'][0]['namespaces'] == ['nerdnam', 'data', 'monitoring']
     assert all(x['spec']['target']['deletionPolicy'] == 'Retain' for x in local['secrets'])
 
     # Missing environment values must fail; example fixtures must not become defaults.
@@ -169,6 +181,8 @@ def main():
     print('PASS: NLB/TLS, secret boundaries, storage retention and missing-input checks')
     print(f'PASS: data layer ({data_count} StatefulSets): placement, PVC retention, pinned images, '
           'pod security, probes, secret keys, quota and BE<->data network policies')
+    print(f'PASS: observability ({obs_count} scrape targets): platform placement incl. Prometheus/Alertmanager, retained PVCs, '
+          'Loki on S3 via Pod Identity, least-privilege Alloy RBAC, ServiceMonitor<->Service<->NetworkPolicy match')
     print(f'PASS: apps ({app_count} Deployments): digest-pinned ECR images, placement, pod security, probes, '
           'public routes, Bedrock identity and namespace traffic policies')
 
@@ -326,7 +340,7 @@ def check_apps(local):
                 for port in rule_['ports']:
                     ingress_from.setdefault(target, set()).add((source, port['port']))
     assert ingress_from == {'web': {('ns:traefik', ports['web'])},
-                            'api': {('ns:traefik', ports['api']), ('web', ports['api'])},
+                            'api': {('ns:traefik', ports['api']), ('web', ports['api']), ('ns:monitoring', management)},
                             'ai': {('api', ports['ai'])}}
     egress_to = {}
     for spec in policies.values():
@@ -358,6 +372,90 @@ def check_apps(local):
     assert cpu + quantity(sample['requests']['cpu']) <= quantity(quota['requests.cpu']), 'quota blocks rolling update'
     assert memory + quantity(sample['limits']['memory']) <= quantity(quota['limits.memory']), 'quota blocks rolling update'
     return len(deployments)
+
+
+def check_observability(local, upstream):
+    def tolerates(pod):
+        return any(t.get('key') == 'dedicated' and t.get('value') == 'platform' for t in pod.get('tolerations', []))
+    # operator 가 만드는 Prometheus·Alertmanager 도 platform 노드, PVC 는 gp3-retain.
+    stack = upstream['kube-prometheus-stack']
+    for kind in ['Prometheus', 'Alertmanager']:
+        (cr,) = [x for x in stack if x['kind'] == kind]
+        spec = cr['spec']
+        assert spec['nodeSelector'].get('workload') == 'platform' and tolerates(spec), kind
+        assert spec['storage']['volumeClaimTemplate']['spec']['storageClassName'] == 'gp3-retain', kind
+    prom = next(x for x in stack if x['kind'] == 'Prometheus')['spec']
+    assert prom['retention'] == '7d' and prom['retentionSize'] == '20GB'
+    assert prom['serviceMonitorSelector'] == {} and prom['ruleSelector'] == {}, 'local ServiceMonitor/PrometheusRule must be selected'
+    grafana = next(x for x in stack if x['kind'] == 'Deployment' and x['metadata']['name'] == 'grafana')['spec']['template']['spec']
+    assert grafana['nodeSelector'].get('workload') == 'platform' and tolerates(grafana)
+    assert not any(e['name'] == 'GF_SECURITY_ADMIN_PASSWORD' and 'value' in e for c in grafana['containers'] for e in c.get('env', [])), \
+        'Grafana admin password must come from a Secret'
+    assert any(e.get('valueFrom', {}).get('secretKeyRef', {}).get('name') == 'monitoring-secrets'
+               for c in grafana['containers'] for e in c.get('env', [])), 'Grafana admin from ExternalSecret'
+    claims = [x for x in stack if x['kind'] == 'PersistentVolumeClaim']
+    assert claims and all(x['spec']['storageClassName'] == 'gp3-retain' for x in claims)
+    node_exporter = next(x for x in stack if x['kind'] == 'DaemonSet')['spec']['template']['spec']
+    assert any(t.get('operator') == 'Exists' for t in node_exporter['tolerations']), 'node-exporter must run on every node'
+    assert not any(x['kind'] in ('Ingress',) for docs in [stack, upstream['loki'], upstream['alloy']] for x in docs)
+
+    # Loki: S3 + Pod Identity(SA 이름이 Terraform association 과 같아야 한다). 정적 키 없음.
+    loki = upstream['loki']
+    (sts,) = [x for x in loki if x['kind'] == 'StatefulSet']
+    assert sts['spec']['template']['spec']['serviceAccountName'] == 'loki'
+    assert sts['spec']['template']['spec']['nodeSelector'].get('workload') == 'platform' and tolerates(sts['spec']['template']['spec'])
+    assert sts['spec']['volumeClaimTemplates'][0]['spec']['storageClassName'] == 'gp3-retain'
+    assert not [x for x in loki if x['kind'] in ('Deployment', 'StatefulSet') and x is not sts], 'SingleBinary only (no gateway/cache/canary)'
+    config = next(yaml.safe_load(x['data']['config.yaml']) for x in loki if x['kind'] == 'ConfigMap' and 'config.yaml' in x.get('data', {}))
+    s3 = config['common']['storage']['s3']
+    assert s3['bucketnames'] == 'nerdnam-dev-loki-082139775699-ap-northeast-2' and 'access_key_id' not in s3 and 'secret_access_key' not in s3
+    assert config['limits_config']['retention_period'] == '168h' and config['compactor']['retention_enabled'] is True
+    assert config['auth_enabled'] is False
+
+    # Alloy: Secret·ConfigMap 을 읽지 못한다(차트 기본 권한을 줄였다).
+    alloy = upstream['alloy']
+    for role in [x for x in alloy if x['kind'] in ('ClusterRole', 'Role')]:
+        for rule in role['rules']:
+            assert not {'secrets', 'configmaps'} & set(rule.get('resources', [])), f'alloy RBAC too broad: {rule}'
+            assert set(rule['verbs']) <= {'get', 'list', 'watch'}
+    (alloy_deploy,) = [x for x in alloy if x['kind'] == 'Deployment']
+    assert alloy_deploy['spec']['template']['spec']['nodeSelector'].get('workload') == 'platform'
+    assert not any('hostPath' in v for v in alloy_deploy['spec']['template']['spec'].get('volumes', []))
+    alloy_config = next(x['data']['config.alloy'] for x in alloy if x['kind'] == 'ConfigMap' and 'config.alloy' in x.get('data', {}))
+    assert 'http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push' in alloy_config
+
+    # ServiceMonitor → Service(라벨·포트 이름) → NetworkPolicy(Prometheus 허용)가 서로 맞는지.
+    services = {(x['metadata']['namespace'], x['metadata']['name']): x for chart in ['apps', 'data'] for x in local[chart] if x['kind'] == 'Service'}
+    policies = [x for chart in ['apps', 'data'] for x in local[chart] if x['kind'] == 'NetworkPolicy']
+    monitors = [x for x in local['observability'] if x['kind'] == 'ServiceMonitor']
+    for monitor in monitors:
+        namespace = monitor['metadata']['namespace']
+        selector = monitor['spec']['selector']['matchLabels']
+        matched = [s for (ns, _), s in services.items() if ns == namespace and selector.items() <= s['metadata'].get('labels', {}).items()]
+        assert len(matched) == 1, f'{namespace}/{monitor["metadata"]["name"]}: selects {len(matched)} services'
+        service = matched[0]
+        port_name = monitor['spec']['endpoints'][0]['port']
+        port = next(p for p in service['spec']['ports'] if p['name'] == port_name)
+        pod_labels = service['spec']['selector']
+        target_port = port['targetPort']
+        def allows(policy):
+            spec = policy['spec']
+            if policy['metadata']['namespace'] != namespace or 'Ingress' not in spec['policyTypes']:
+                return False
+            if not spec['podSelector'].get('matchLabels', {}).items() <= pod_labels.items():
+                return False
+            for rule in spec.get('ingress', []):
+                from_prometheus = any(p.get('namespaceSelector', {}).get('matchLabels') == {'kubernetes.io/metadata.name': 'monitoring'}
+                                      and p.get('podSelector', {}).get('matchLabels') == {'app.kubernetes.io/name': 'prometheus'}
+                                      for p in rule['from'])
+                if from_prometheus and any(r['port'] in (port['port'], target_port) or str(r['port']) == str(port['port']) for r in rule['ports']):
+                    return True
+            return False
+        assert any(allows(p) for p in policies), f'{namespace}/{service["metadata"]["name"]}:{port_name} not reachable from Prometheus'
+    assert {(m['metadata']['namespace'], m['metadata']['name']) for m in monitors} == {('nerdnam', 'api'), ('data', 'postgres-exporter'), ('data', 'redis-exporter')}
+    rules = next(x for x in local['observability'] if x['kind'] == 'PrometheusRule')
+    assert all(r['labels']['severity'] in ('warning', 'critical') for g in rules['spec']['groups'] for r in g['rules'])
+    return len(monitors)
 
 
 def quantity(value):
@@ -434,6 +532,19 @@ def check_data_layer(local):
                 used_keys.add(ref['key'])
         mounts = {m['mountPath'] for m in container['volumeMounts']}
         assert {'/tmp'} <= mounts, where
+    for exporter in by_kind['Deployment']:
+        pod = exporter['spec']['template']['spec']
+        (container,) = pod['containers']
+        where = f"data/{exporter['metadata']['name']}"
+        assert exporter['metadata']['name'] in ('postgres-exporter', 'redis-exporter'), where
+        assert '@sha256:' in container['image'] and pod['nodeSelector'] == {'workload': 'data'}, where
+        assert pod['securityContext']['runAsNonRoot'] and isinstance(pod['securityContext']['runAsUser'], int), where
+        assert container['securityContext']['readOnlyRootFilesystem'] is True, where
+        for env in container['env']:
+            ref = env.get('valueFrom', {}).get('secretKeyRef')
+            if ref:
+                used_keys.add(ref['key'])
+                assert ref['key'].endswith('-exporter-password'), f'{where}: exporters use their own accounts only'
     assert used_keys == DATA_SECRET_KEYS, f'data secret keys drifted: {sorted(used_keys ^ DATA_SECRET_KEYS)}'
     pg_env = {e['name']: e.get('value') for e in sets['postgres']['spec']['template']['spec']['containers'][0]['env']}
     assert pg_env['PGDATA'].startswith('/var/lib/postgresql/data/'), 'PGDATA must be below the EBS mount root'

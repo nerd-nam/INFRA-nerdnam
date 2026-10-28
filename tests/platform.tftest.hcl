@@ -20,7 +20,7 @@ run "controller_identity_and_secret_metadata" {
     error_message = "DNS/Secret controller 역할을 각 service account에 연결해야 합니다."
   }
   assert {
-    condition     = toset(keys(aws_secretsmanager_secret.workload)) == toset(["backend", "data", "ai"]) && alltrue([for s in aws_secretsmanager_secret.workload : s.recovery_window_in_days == 7])
+    condition     = toset(keys(aws_secretsmanager_secret.workload)) == toset(["backend", "data", "ai", "monitoring"]) && alltrue([for s in aws_secretsmanager_secret.workload : s.recovery_window_in_days == 7])
     error_message = "런타임 Secret 메타데이터와 복구 기간이 변경됐습니다."
   }
 }

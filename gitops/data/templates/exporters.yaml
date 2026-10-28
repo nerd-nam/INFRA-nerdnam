@@ -1,0 +1,89 @@
+{{- $ex := .Values.exporters }}
+{{- $pg := .Values.postgres }}
+{{- define "data.exporterPod" }}
+automountServiceAccountToken: false
+enableServiceLinks: false
+nodeSelector: {{ toYaml .root.Values.placement.nodeSelector | nindent 2 }}
+tolerations: {{ toYaml .root.Values.placement.tolerations | nindent 2 }}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: {{ .ex.uid }}
+  runAsGroup: {{ .ex.uid }}
+  seccompProfile: {type: RuntimeDefault}
+{{- end }}
+{{- define "data.exporterContainer" }}
+ports: [{name: metrics, containerPort: {{ .ex.port }}}]
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+resources: {{ toYaml .ex.resources | nindent 2 }}
+readinessProbe:
+  httpGet: {path: /metrics, port: metrics}
+  periodSeconds: 30
+  timeoutSeconds: 10
+livenessProbe:
+  tcpSocket: {port: metrics}
+  periodSeconds: 30
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres-exporter}
+  template:
+    metadata:
+      labels: {app: postgres-exporter}
+    spec:
+      {{- include "data.exporterPod" (dict "root" $ "ex" $ex.postgres) | nindent 6 }}
+      containers:
+        - name: exporter
+          image: {{ $ex.postgres.image | quote }}
+          env:
+            - {name: DATA_SOURCE_URI, value: "postgres.data.svc.cluster.local:5432/{{ $pg.database }}?sslmode=disable"}
+            - {name: DATA_SOURCE_USER, value: {{ $ex.postgres.user | quote }}}
+            - name: DATA_SOURCE_PASS
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: postgres-exporter-password}}
+          {{- include "data.exporterContainer" (dict "ex" $ex.postgres) | nindent 10 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: data
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: redis-exporter}
+  template:
+    metadata:
+      labels: {app: redis-exporter}
+    spec:
+      {{- include "data.exporterPod" (dict "root" $ "ex" $ex.redis) | nindent 6 }}
+      containers:
+        - name: exporter
+          image: {{ $ex.redis.image | quote }}
+          env:
+            - {name: REDIS_ADDR, value: "redis://redis.data.svc.cluster.local:6379"}
+            - {name: REDIS_USER, value: {{ $ex.redis.user | quote }}}
+            - name: REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-exporter-password}}
+          {{- include "data.exporterContainer" (dict "ex" $ex.redis) | nindent 10 }}
+{{- range $name, $exporter := $ex }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-exporter
+  namespace: data
+  labels: {app: {{ $name }}-exporter}
+spec:
+  type: ClusterIP
+  selector: {app: {{ $name }}-exporter}
+  ports: [{name: metrics, port: {{ $exporter.port }}, targetPort: metrics}]
+{{- end }}

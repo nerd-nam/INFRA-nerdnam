@@ -22,3 +22,18 @@ controllers:
     repoURL: https://charts.external-secrets.io
     version: 2.14.0
     namespace: external-secrets
+  kube-prometheus-stack:
+    chart: kube-prometheus-stack
+    repoURL: https://prometheus-community.github.io/helm-charts
+    version: 92.7.0
+    namespace: monitoring
+  loki:
+    chart: loki
+    repoURL: https://grafana.github.io/helm-charts
+    version: 7.3.0
+    namespace: monitoring
+  alloy:
+    chart: alloy
+    repoURL: https://grafana.github.io/helm-charts
+    version: 1.13.1
+    namespace: monitoring

@@ -1,4 +1,4 @@
-{{- range list "nerdnam" "data" }}
+{{- range list "nerdnam" "data" "monitoring" }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -43,7 +43,7 @@ metadata:
   name: nerdnam-secrets
 spec:
   conditions:
-    - namespaces: [nerdnam, data]
+    - namespaces: [nerdnam, data, monitoring]
   provider:
     aws:
       service: SecretsManager

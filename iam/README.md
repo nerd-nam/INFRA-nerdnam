@@ -9,12 +9,13 @@
 | `NerdnamTerraformEksDev` | [EKS 정책 초안](policies/nerdnam-terraform-eks-dev.json) | 프로젝트 EKS·역할·ECR 관리, 서울 Launch Template, 필요한 서비스 연결 역할 |
 | `NerdnamTerraformPlatformDev` | [platform 정책 초안](policies/nerdnam-terraform-platform-dev.json) | 공통 controller 역할과 런타임 Secret 생성·관리 |
 | `NerdnamTerraformWorkloadDev` | [workload 정책 초안](policies/nerdnam-terraform-workload-dev.json) | AI Bedrock 역할·CI 역할 3개의 생성·inline 정책, AI 역할 PassRole(Pod Identity), GitHub OIDC provider 관리 |
+| `NerdnamTerraformObservabilityDev` | [observability 정책 초안](policies/nerdnam-terraform-observability-dev.json) | Loki 로그 bucket 1개의 생성·설정·삭제, Loki 역할과 inline 정책, Loki 역할 PassRole(Pod Identity). 객체 읽기·쓰기는 넣지 않음 |
 | `NerdnamTerraformBootstrapStateDev` | [bootstrap state 정책](policies/nerdnam-terraform-bootstrap-state-dev.json) | 별도 dev/bootstrap.tfstate와 잠금 객체 |
 
 ## 적용
 
 1. IAM 관리 권한이 있는 사용자가 IAM → 정책 → 정책 생성 → JSON에서 파일 내용을 붙여 넣고 위 이름으로 저장한다.
-2. 실제 실행 권한을 준비하는 시점에 IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 필요한 정책을 연결한다. AWS 루트는 state/network/EKS/platform/workload 정책을 사용한다. bootstrap에는 별도 state 정책과 기존 AWS state 읽기, EKS 관리자 인증이 필요하다.
+2. 실제 실행 권한을 준비하는 시점에 IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 필요한 정책을 연결한다. AWS 루트는 state/network/EKS/platform/workload/observability 정책을 사용한다. bootstrap에는 별도 state 정책과 기존 AWS state 읽기, EKS 관리자 인증이 필요하다.
 3. Terraform 실행 사용자를 그룹에 추가한다. 로컬 프로필은 새 사용자를 선택한다.
 4. STS 신원, state HeadObject, Terraform init/plan 순서로 확인한다. 액세스 키 원문은 저장소나 채팅에 넣지 않는다.
 
@@ -47,7 +48,7 @@ Launch Template 관리 작업은 서울 리전 전체 범위이며 기존 networ
 | --- | --- |
 | EKS/MNG | 초안을 위 파일로 준비. 실제 권한 검증과 운영 입력 확정은 배포 준비 시 수행 |
 | 이미지 CI | workload 정책 초안으로 준비(6단계). CI 역할 자체의 push 권한은 Terraform 이 역할 inline 정책으로 부여 |
-| 관측/Secret | 로그/trace S3 bucket, CloudWatch, Secrets Manager 메타데이터 및 workload별 IAM 역할 |
+| 관측/Secret | 7단계: Loki bucket·역할(observability 정책), `nerdnam/dev/monitoring` Secret(platform 정책). trace bucket·CloudWatch 는 8단계 이후 |
 | DNS | 사용할 Route53 zone/record와 cert-manager 역할 |
 | DB 백업 | 사용자 요청으로 후속 보류. 현재 S3 백업 bucket/Job 권한을 추가하지 않음 |
 

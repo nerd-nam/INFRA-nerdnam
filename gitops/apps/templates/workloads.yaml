@@ -15,6 +15,7 @@ kind: Service
 metadata:
   name: {{ $name }}
   namespace: nerdnam
+  labels: {app.kubernetes.io/name: {{ $name }}}
 spec:
   type: ClusterIP
   selector: {app: {{ $name }}}

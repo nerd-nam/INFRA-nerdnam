@@ -11,8 +11,9 @@ override_data {
       network = { vpc_id = "vpc-test", public_subnet_ids = ["subnet-test"] }
       platform = {
         route53_zone_id = "ZTESTONLY"
-        secret_arns     = { backend = "test-backend-arn", data = "test-data-arn", ai = "test-ai-arn" }
+        secret_arns     = { backend = "test-backend-arn", data = "test-data-arn", ai = "test-ai-arn", monitoring = "test-monitoring-arn" }
       }
+      observability = { loki_bucket = "test-loki-bucket" }
     }
   }
 }
@@ -29,7 +30,7 @@ run "bootstrap_uses_aws_outputs" {
     error_message = "AWS output 식별자를 GitOps에 전달해야 합니다."
   }
   assert {
-    condition     = yamldecode(helm_release.seed.values[0]).environment.appHostname == "app.example.invalid" && !can(yamldecode(helm_release.seed.values[0]).environment.images)
+    condition     = yamldecode(helm_release.seed.values[0]).environment.appHostname == "app.example.invalid" && yamldecode(helm_release.seed.values[0]).environment.lokiBucket == "test-loki-bucket" && !can(yamldecode(helm_release.seed.values[0]).environment.images)
     error_message = "서비스 도메인은 bootstrap 입력, 이미지 digest 는 Git(gitops/apps/images.yaml)이 소유해야 합니다."
   }
   assert {

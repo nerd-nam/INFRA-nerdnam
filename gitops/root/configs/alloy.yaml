@@ -1,0 +1,102 @@
+{{- /*
+  7단계 로그 수집. 구축 계획은 노드별 DaemonSet + 노드 로그 파일(hostPath, root 권한)이었지만,
+  노드가 3대뿐이라 platform 노드의 Alloy 1개가 Kubernetes API(pods/log)로 모든 Pod 로그를 읽는다.
+  hostPath·root 없이 동작한다. 8단계 OTLP 수신도 이 Alloy 가 맡는다.
+*/}}
+{{- $platform := dict "nodeSelector" (dict "workload" "platform") "tolerations" (list (dict "key" "dedicated" "operator" "Equal" "value" "platform" "effect" "NoSchedule")) }}
+fullnameOverride: alloy
+controller:
+  type: deployment
+  replicas: 1
+  volumes:
+    extra:
+      - name: tmp
+        emptyDir: {sizeLimit: 256Mi}
+  {{- toYaml $platform | nindent 2 }}
+# 차트 기본 권한에는 클러스터 전체 Secret·ConfigMap 읽기가 들어 있다. 로그 수집에 필요한 것만 남긴다.
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "pods/log", "namespaces"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["get", "list", "watch"]
+  # clusterRules(노드·노드 지표 읽기)는 차트 기본값을 쓴다. 비우면 차트 템플릿이 깨진다.
+alloy:
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {memory: 512Mi}
+  mounts:
+    varlog: false
+    dockercontainers: false
+    # 읽기 전용 root 라 저장 경로(/tmp/alloy: 로그 읽은 위치·이벤트 위치)를 emptyDir 에 둔다
+    extra:
+      - {name: tmp, mountPath: /tmp}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 473
+    runAsGroup: 473
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  storagePath: /tmp/alloy
+  configMap:
+    create: true
+    content: |
+      // 모든 namespace 의 Pod 로그. label 은 유한한 값만 쓴다(member_id·작업 id 는 label 로 만들지 않는다).
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_pod_phase"]
+          regex         = "Pending|Succeeded|Failed|Unknown"
+          action        = "drop"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app", "__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          regex         = ";?([^;]+);?.*"
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_node_name"]
+          target_label  = "node"
+        }
+      }
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+      loki.source.kubernetes_events "events" {
+        forward_to = [loki.write.default.receiver]
+      }
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+        }
+        external_labels = {
+          cluster = {{ required "environment.clusterName is required" .Values.environment.clusterName | quote }},
+        }
+      }
+configReloader:
+  enabled: true
+  resources:
+    requests: {cpu: 5m, memory: 16Mi}
+    limits: {memory: 64Mi}
+serviceMonitor:
+  enabled: true

@@ -51,6 +51,28 @@ redis:
     limits: {memory: 768Mi}
   terminationGracePeriodSeconds: 60
 
+# 7단계 지표 수집. 각자 전용 계정(PostgreSQL pg_monitor, Redis 조회 전용 ACL)으로 접속한다.
+# Prometheus(monitoring namespace)만 지표 포트에 닿는다.
+exporters:
+  postgres:
+    # postgres_exporter v0.20.1. 이미지 USER 가 이름(nobody)이라 숫자 uid 를 지정한다.
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    user: nerdnam_exporter
+    port: 9187
+    uid: 65534
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {memory: 128Mi}
+  redis:
+    # redis_exporter v1.93.0 (uid 59000)
+    image: oliver006/redis_exporter:v1.93.0@sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
+    user: exporter
+    port: 9121
+    uid: 59000
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {memory: 128Mi}
+
 # data namespace 전체 상한. 7단계 exporter 가 들어올 여유를 둔다.
 quota:
   requests.cpu: "1500m"

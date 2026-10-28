@@ -90,6 +90,9 @@ spec:
             - {name: NERDNAM_APP_USER, value: {{ $pg.appUser | quote }}}
             - name: NERDNAM_APP_PASSWORD
               valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: postgres-app-password}}
+            - {name: NERDNAM_EXPORTER_USER, value: {{ .Values.exporters.postgres.user | quote }}}
+            - name: NERDNAM_EXPORTER_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: postgres-exporter-password}}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

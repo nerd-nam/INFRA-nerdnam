@@ -25,3 +25,8 @@ output "workload" {
   description = "AI Bedrock 역할과 이미지 CI 역할(GitHub OIDC). 앱 저장소 workflow 에 CI 역할 ARN 을 넣는다."
   value       = module.workload
 }
+
+output "observability" {
+  description = "Loki 로그 bucket 과 역할. bootstrap 이 bucket 이름을 GitOps 로 넘긴다."
+  value       = module.observability
+}

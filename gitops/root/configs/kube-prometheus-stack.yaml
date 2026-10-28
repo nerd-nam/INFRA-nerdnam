@@ -1,0 +1,134 @@
+{{- /* 7단계: Prometheus·Alertmanager·Grafana·operator·kube-state-metrics·node-exporter. 운영 도구는 platform 노드. */}}
+{{- $platform := dict "nodeSelector" (dict "workload" "platform") "tolerations" (list (dict "key" "dedicated" "operator" "Equal" "value" "platform" "effect" "NoSchedule")) }}
+fullnameOverride: monitoring
+cleanPrometheusOperatorObjectNames: true
+windowsMonitoring:
+  enabled: false
+# EKS 관리형 control plane 은 etcd·scheduler·controller-manager 지표를 노드에서 열지 않는다. kube-proxy 는 127.0.0.1 에만 연다.
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+    kubeProxy: false
+    windows: false
+
+prometheusOperator:
+  {{- toYaml $platform | nindent 2 }}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+  admissionWebhooks:
+    patch:
+      {{- toYaml $platform | nindent 6 }}
+
+prometheus:
+  prometheusSpec:
+    {{- toYaml $platform | nindent 4 }}
+    replicas: 1
+    retention: 7d
+    retentionSize: 20GB       # PVC 30Gi 안에서 WAL·compaction 여유를 남긴다
+    # 이 저장소의 ServiceMonitor·PodMonitor·PrometheusRule 을 라벨 없이도 고른다(gitops/observability).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 300m, memory: 1536Mi}
+      limits: {memory: 3Gi}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3-retain
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: {storage: 30Gi}
+    externalLabels:
+      cluster: {{ required "environment.clusterName is required" .Values.environment.clusterName | quote }}
+
+alertmanager:
+  alertmanagerSpec:
+    {{- toYaml $platform | nindent 4 }}
+    replicas: 1
+    retention: 120h
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 128Mi}
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3-retain
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests: {storage: 2Gi}
+  # 수신 채널(Slack·메일 등)은 아직 정하지 않았다. 정해지면 Secret 으로 넣는다. 지금은 Alertmanager UI 에서만 본다.
+  config:
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace]
+      routes:
+        - matchers: [alertname = "Watchdog"]
+          receiver: "null"
+    receivers:
+      - name: "null"
+
+grafana:
+  fullnameOverride: grafana
+  {{- toYaml $platform | nindent 2 }}
+  # 관리자 계정은 Secrets Manager nerdnam/dev/monitoring → ExternalSecret monitoring-secrets (gitops/secrets)
+  admin:
+    existingSecret: monitoring-secrets
+    userKey: grafana-admin-user
+    passwordKey: grafana-admin-password
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: gp3-retain
+    accessModes: [ReadWriteOnce]
+    size: 5Gi
+  # 공개하지 않는다. 처음에는 관리자가 kubectl port-forward 로 들어간다.
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {memory: 512Mi}
+  grafana.ini:
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+      check_for_plugin_updates: false
+    users:
+      allow_sign_up: false
+    auth.anonymous:
+      enabled: false
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+kube-state-metrics:
+  {{- toYaml $platform | nindent 2 }}
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+# node-exporter 는 모든 노드에 하나씩. app/platform/data 의 taint 를 모두 견딘다.
+prometheus-node-exporter:
+  tolerations:
+    - operator: Exists
+      effect: NoSchedule
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 64Mi}
