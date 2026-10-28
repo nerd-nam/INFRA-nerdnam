@@ -4,7 +4,7 @@
 
 > 2026-10-28 범위 변경: PostgreSQL 일일 S3 백업과 새 PVC 복원 시험은 사용자 요청으로 후속 작업으로 미룬다. 백업 bucket·CronJob·IAM·snapshot 추가도 초기 구축에 포함하지 않는다. 현재는 PVC 영속성/보존과 Pod 재시작 후 데이터 유지까지만 검증한다. 단계별 구현·검증 후 커밋한다.
 
-> 진행 상태: VPC 모듈을 구현했다. 한 차례 AWS에 적용했다가 사용자 요청으로 네트워크 리소스를 삭제했다. 이후 적용은 사용자가 직접 수행한다. [VPC 단계 작업 기록](VPC-단계-작업기록.md)을 따른다.
+> 진행 상태: VPC·EKS 코드를 작성했고 현재는 코드 검토·검증을 계속하는 단계다. 실제 AWS 배포나 사용자 apply는 후속 코드 작성의 선행 조건이 아니다. AWS 변경은 실행하지 않는다. VPC는 이전 적용 후 삭제됐고 EKS는 미배포다. [EKS 코드 작업계획](EKS-기반-작업계획.md), [VPC 이력](VPC-단계-작업기록.md)을 따른다.
 
 ## 1. 검토 범위와 확인한 변화
 
@@ -366,19 +366,19 @@ data 노드에서 DB·Redis의 메모리 limit, PostgreSQL work_mem/연결 수, 
 
 ## 9. 구현 순서와 단계별 완료 기준
 
-각 단계는 별도 변경 묶음/PR로 진행하고, 앞 단계 완료 기준을 충족한 뒤 의존 작업을 적용한다. 앱의 prod/probe/계측 준비는 인프라 생성과 병행할 수 있다.
+단계마다 코드를 작성·검증한 뒤 커밋한다. **코드 작성 완료와 실제 배포 완료를 구분한다.** 앞 단계 리소스가 없어도 후속 코드를 계속 작성하고, 미확정 값은 입력 변수로 둔다. AWS apply나 사용자 적용을 요구하며 코드 작업을 멈추지 않는다. 실제 노드·네트워크·저장소의 완료 기준은 배포 후에만 확인할 수 있다.
 
-| 단계 | 산출물·작업 | 완료 기준 |
+| 단계 | 코드 작성·검증 | 배포 후 별도 확인 |
 | --- | --- | --- |
-| 0. 기준 고정 | SPEC에 3개 EKS 노드 그룹 결정 반영, 배포 commit/계약·Kubernetes/add-on/chart 버전·도메인/관리 IP·월 예산 확인 | 역할·네트워크·저장·데이터 삭제 정책 기록. 계정 접근/Bedrock 한도/서울 EC2 견적 검토 |
-| 1. VPC | network 모듈: public-a/private-c, IGW/NAT, route table, S3 endpoint, tags/outputs | fmt/validate/plan 확인. 적용 후 DNS·외부 통신·CIDR/AZ 검증 |
-| 2. EKS 기반 | EKS, app/platform/data MNG, IAM/access entries, CNI/CoreDNS/kube-proxy/EBS CSI/Pod Identity, ECR·S3·Secrets 메타데이터 | 3개 노드 Ready, taint/affinity 검증, DNS·Pod 통신·사설 노드 이미지 pull·Pod Identity·샘플 PVC 재연결 |
-| 3. GitOps/공통 도구 | bootstrap state, Argo, root App, LBC/Traefik/cert-manager/External Secrets, namespaces/정책 | Git 읽기·sync·Secret 주입·HTTPS 샘플 서비스 성공. Argo 재설치 경로 확보 |
-| 4. 데이터 계층 | StorageClass, PostgreSQL/Redis StatefulSet·Service·PVC, ACL, exporter | data 노드에만 배치, pgvector 사용 가능, Pod 재시작 후 데이터/세션 유지. S3 백업·복원 시험은 후속 |
-| 5. CI·앱 배포 | 테스트→ECR digest→INFRA PR, prod 설정/probe, Flyway, FE/BE/AI | OAuth·등록·임베딩·검색·분석·가이드 실흐름 및 V8 토큰 기록 확인 |
-| 6. metrics·로그 | kube-prometheus-stack, Loki, 3개 노드 Alloy/node-exporter, ServiceMonitor·대시보드·알림 | 앱·DB·Redis 로그/지표 조회, 수집 누락/중복 없음, 보존과 알림 시험 |
-| 7. trace | BE/AI OTel부터 FE 확장, Tempo monolithic, correlation | 같은 요청/job의 BE→AI→Bedrock client span과 로그 연결 |
-| 8. 운영 검증 | 동시 부하·throttle·배포 중 작업, app/data/platform별 장애, 노드 교체·PVC 재연결·Git rollback | 자원/비용·재시작 시간 기록, 24시간 관측 후 sizing 검토, 운영 runbook 완료 |
+| 1. 배포 기준 확정 | 배포 commit·버전·도메인·관리 IP·예산의 설정 항목과 산정 기준 기록 | 실제 환경 값과 서비스 한도·가격 확인 |
+| 2. VPC | public-a/private-c·IGW·NAT·routes·S3 endpoint, fmt/validate 및 mock 격리 검증 | 실제 통신 경로·CIDR/AZ 확인 |
+| 3. EKS 기반 | 고정 MNG 3개·IAM·ECR·기본 add-on, 접근·배치·버전·권한 분리 검증 | 3노드 Ready·DNS·Pod Identity·이미지 pull·PVC 검증 |
+| 4. GitOps 기반 | 별도 bootstrap state·Argo CD·LBC/Traefik·HTTPS·Secret 공급·StorageClass·정책 | Git 변경으로 샘플 서비스 배포·HTTPS·Secret 주입 |
+| 5. 데이터 계층 | PostgreSQL·Redis StatefulSet/PVC·인증·보존 설정 | 재시작 후 데이터 유지. S3 백업·새 PVC 복원은 후속 보류 |
+| 6. 애플리케이션 | CI·FE/BE/AI 배포·운영 설정·DB migration·Bedrock 역할 | 로그인→분석→가이드 실제 흐름 |
+| 7. 지표·로그 | Prometheus·Grafana·Loki·Alloy·알림·로그 S3와 역할 | 앱·DB·Redis 지표와 로그 조회·알림 수신 |
+| 8. 분산 추적 | OpenTelemetry·Tempo·trace S3와 역할·로그 연계 | BE→AI→Bedrock trace와 로그 연결 |
+| 9. 운영 검증 | 부하·노드 교체·배포 중 작업·복구 시나리오와 운영 문서 | 실제 시험 결과로 용량·절차 확정 |
 
 ### 첫 구현 작업: VPC Terraform
 
@@ -387,7 +387,7 @@ data 노드에서 DB·Redis의 메모리 limit, PostgreSQL work_mem/연결 수, 
 3. VPC DNS support/hostnames, IGW 1개, subnet 2개, NAT 1개/EIP, route table 2개와 association, S3 Gateway endpoint를 선언한다.
 4. public subnet은 NLB용, private subnet은 내부용 tag를 지정한다. app 공인 주소 부여 방식과 platform/data 공인 IP 미할당을 명시한다.
 5. `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, route table/NAT 식별자를 다음 단계 입력으로 출력한다. DB 포트의 인터넷 개방 규칙은 만들지 않는다.
-6. fmt/validate와 실제 계정 plan을 확인하고 예상 월 비용과 변경 목록을 기록한 후 적용 단계로 진행한다.
+6. fmt/validate와 mock 테스트를 수행하고 커밋한다. 실제 계정 plan·월 비용·배포 후 통신 검증은 별도 상태로 기록하며 코드 작성을 계속한다.
 
 VPC 코드는 구현·로컬 검증을 마쳤다. 기존 S3 state 접근이 막혀 실제 plan/apply는 미완료이며, chart 설치·cloud 리소스 생성·비밀값 입력·application 코드 변경은 수행하지 않았다.
 

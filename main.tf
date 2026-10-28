@@ -13,7 +13,6 @@ module "network" {
 }
 
 module "eks" {
-  count  = var.enable_eks ? 1 : 0
   source = "./modules/eks"
 
   name                = "nerdnam-dev"
@@ -25,6 +24,4 @@ module "eks" {
   public_access_cidrs = var.eks_public_access_cidrs
   instance_types      = var.eks_instance_types
   addon_versions      = var.eks_addon_versions
-
-  depends_on = [module.network]
 }

@@ -4,7 +4,8 @@ output "node_group_names" { value = { for k, v in aws_eks_node_group.this : k =>
 output "ecr_repository_urls" { value = { for k, v in aws_ecr_repository.apps : k => v.repository_url } }
 output "addon_versions" {
   value = merge({ for k, v in aws_eks_addon.bootstrap : k => v.addon_version }, {
-    coredns            = aws_eks_addon.coredns.addon_version
-    aws-ebs-csi-driver = aws_eks_addon.ebs_csi.addon_version
+    eks-pod-identity-agent = aws_eks_addon.pod_identity.addon_version
+    coredns                = aws_eks_addon.coredns.addon_version
+    aws-ebs-csi-driver     = aws_eks_addon.ebs_csi.addon_version
   })
 }

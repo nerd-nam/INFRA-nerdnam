@@ -28,11 +28,27 @@ data "aws_iam_policy_document" "node_assume" {
 }
 
 data "aws_iam_policy_document" "pod_assume" {
+  for_each = { cni = "aws-node", ebs_csi = "ebs-csi-controller-sa" }
   statement {
     actions = ["sts:AssumeRole", "sts:TagSession"]
     principals {
       type        = "Service"
       identifiers = ["pods.eks.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/eks-cluster-arn"
+      values   = [aws_eks_cluster.this.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/kubernetes-namespace"
+      values   = ["kube-system"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/kubernetes-service-account"
+      values   = [each.value]
     }
   }
 }
@@ -91,15 +107,21 @@ resource "aws_iam_role_policy_attachment" "node" {
   for_each = toset([
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
     "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly",
-    # Bootstrap용: CNI를 별도 역할로 옮긴 뒤 제거한다.
-    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
   ])
   role       = aws_iam_role.node.name
   policy_arn = each.value
 }
+resource "aws_iam_role" "cni" {
+  name               = "${var.name}-cni"
+  assume_role_policy = data.aws_iam_policy_document.pod_assume["cni"].json
+}
+resource "aws_iam_role_policy_attachment" "cni" {
+  role       = aws_iam_role.cni.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
 resource "aws_iam_role" "ebs_csi" {
   name               = "${var.name}-ebs-csi"
-  assume_role_policy = data.aws_iam_policy_document.pod_assume.json
+  assume_role_policy = data.aws_iam_policy_document.pod_assume["ebs_csi"].json
 }
 resource "aws_iam_role_policy_attachment" "ebs_csi" {
   role       = aws_iam_role.ebs_csi.name
@@ -107,19 +129,39 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
 }
 
 data "aws_eks_addon_version" "compatible" {
-  for_each           = local.addons
+  for_each           = setsubtract(local.addons, toset(keys(var.addon_versions)))
   addon_name         = each.value
   kubernetes_version = var.kubernetes_version
   most_recent        = false
 }
 
+locals {
+  addon_versions = merge({ for name, addon in data.aws_eks_addon_version.compatible : name => addon.version }, var.addon_versions)
+}
+
+resource "aws_eks_addon" "pod_identity" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "eks-pod-identity-agent"
+  addon_version               = local.addon_versions["eks-pod-identity-agent"]
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+}
+
 resource "aws_eks_addon" "bootstrap" {
-  for_each                    = toset(["vpc-cni", "kube-proxy", "eks-pod-identity-agent"])
+  for_each                    = toset(["vpc-cni", "kube-proxy"])
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = each.value
-  addon_version               = lookup(var.addon_versions, each.value, data.aws_eks_addon_version.compatible[each.value].version)
+  addon_version               = local.addon_versions[each.value]
   resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "PRESERVE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  dynamic "pod_identity_association" {
+    for_each = each.key == "vpc-cni" ? [aws_iam_role.cni.arn] : []
+    content {
+      role_arn        = pod_identity_association.value
+      service_account = "aws-node"
+    }
+  }
+  depends_on = [aws_eks_addon.pod_identity, aws_iam_role_policy_attachment.cni]
 }
 
 resource "aws_launch_template" "node" {
@@ -148,6 +190,7 @@ resource "aws_eks_node_group" "this" {
   subnet_ids      = each.value.subnet_ids
   instance_types  = [each.value.instance_type]
   ami_type        = "AL2023_x86_64_STANDARD"
+  version         = var.kubernetes_version
   capacity_type   = "ON_DEMAND"
   labels          = { workload = each.key }
   scaling_config {
@@ -173,17 +216,50 @@ resource "aws_eks_node_group" "this" {
 resource "aws_eks_addon" "coredns" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "coredns"
-  addon_version               = lookup(var.addon_versions, "coredns", data.aws_eks_addon_version.compatible["coredns"].version)
+  addon_version               = local.addon_versions["coredns"]
   resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "PRESERVE"
-  depends_on                  = [aws_eks_node_group.this]
+  resolve_conflicts_on_update = "OVERWRITE"
+  configuration_values = jsonencode({
+    replicaCount = 2
+    tolerations = [
+      { key = "CriticalAddonsOnly", operator = "Exists" },
+      { key = "node-role.kubernetes.io/control-plane", effect = "NoSchedule" },
+      { key = "dedicated", operator = "Equal", value = "platform", effect = "NoSchedule" },
+    ]
+    affinity = {
+      nodeAffinity = {
+        requiredDuringSchedulingIgnoredDuringExecution = {
+          nodeSelectorTerms = [{ matchExpressions = [
+            { key = "kubernetes.io/os", operator = "In", values = ["linux"] },
+            { key = "workload", operator = "In", values = ["app", "platform"] },
+          ] }]
+        }
+      }
+      podAntiAffinity = {
+        preferredDuringSchedulingIgnoredDuringExecution = [{
+          weight = 100
+          podAffinityTerm = {
+            labelSelector = { matchLabels = { "k8s-app" = "kube-dns" } }
+            topologyKey   = "kubernetes.io/hostname"
+          }
+        }]
+      }
+    }
+    topologySpreadConstraints = [{
+      maxSkew           = 1
+      topologyKey       = "topology.kubernetes.io/zone"
+      whenUnsatisfiable = "ScheduleAnyway"
+      labelSelector     = { matchLabels = { "k8s-app" = "kube-dns" } }
+    }]
+  })
+  depends_on = [aws_eks_node_group.this]
 }
 resource "aws_eks_addon" "ebs_csi" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "aws-ebs-csi-driver"
-  addon_version               = lookup(var.addon_versions, "aws-ebs-csi-driver", data.aws_eks_addon_version.compatible["aws-ebs-csi-driver"].version)
+  addon_version               = local.addon_versions["aws-ebs-csi-driver"]
   resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "PRESERVE"
+  resolve_conflicts_on_update = "OVERWRITE"
   pod_identity_association {
     role_arn        = aws_iam_role.ebs_csi.arn
     service_account = "ebs-csi-controller-sa"

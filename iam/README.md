@@ -1,16 +1,17 @@
 # Terraform 실행 그룹 권한
 
-2026-10-28. `nerdnam-infra` IAM 그룹의 **현재 VPC 단계** 권한이다. 파일을 준비한 것이며 AWS 정책 생성·그룹 연결은 수행하지 않았다.
+2026-10-28. `nerdnam-infra` IAM 그룹에서 VPC와 EKS 코드를 실행하기 위한 정책 파일이다. 현재는 코드 작성 단계이며 이 문서에 따른 AWS 정책 생성·연결을 수행하지 않는다. 정책 연결은 로컬 검증과 후속 코드 작성의 선행 조건이 아니다.
 
 | 고객 관리형 정책 이름 | JSON 파일 | 범위 |
 | --- | --- | --- |
 | `NerdnamTerraformStateDev` | [state 정책](policies/nerdnam-terraform-state-dev.json) | 기존 bucket 목록 조회, dev state 읽기/쓰기, 해당 잠금 객체 읽기/쓰기/삭제 |
 | `NerdnamTerraformNetworkDev` | [network 정책](policies/nerdnam-terraform-network-dev.json) | 서울 EC2 조회와 현재 VPC 모듈에 필요한 네트워크 생성/변경/삭제 |
+| `NerdnamTerraformEksDev` | [EKS 정책 초안](policies/nerdnam-terraform-eks-dev.json) | 프로젝트 EKS·역할·ECR 관리, 서울 Launch Template, 필요한 서비스 연결 역할 |
 
 ## 적용
 
 1. IAM 관리 권한이 있는 사용자가 IAM → 정책 → 정책 생성 → JSON에서 파일 내용을 붙여 넣고 위 이름으로 저장한다.
-2. IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 두 정책을 연결한다.
+2. 실제 실행 권한을 준비하는 시점에 IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 필요한 정책을 연결한다. EKS에는 state/network/EKS 세 정책을 함께 사용한다.
 3. Terraform 실행 사용자를 그룹에 추가한다. 로컬 프로필은 새 사용자를 선택한다.
 4. STS 신원, state HeadObject, Terraform init/plan 순서로 확인한다. 액세스 키 원문은 저장소나 채팅에 넣지 않는다.
 
@@ -31,9 +32,13 @@ aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an 
 
 ## 후속 단계에서 추가할 권한
 
+EKS 실행자 정책은 계정 `082139775699`의 `nerdnam-dev` 클러스터와 그 하위 리소스, web/api/ai ECR, cluster/node/cni/ebs-csi 네 IAM 역할로 범위를 제한했다. 역할에 연결할 수 있는 정책은 코드에 사용하는 AWS 관리형 정책 5개로 제한하고 PassRole 대상 서비스도 제한했다. 역할 trust 수정과 클러스터 관리자 access entry 관리는 강한 권한이므로 신뢰하는 인프라 운영자에게 부여한다. 최소 권한이 완성됐다고 보지는 않는다.
+
+Launch Template 관리 작업은 서울 리전 전체 범위이며 기존 network 정책의 EC2 조회·태그 권한을 함께 사용한다. EKS 카탈로그 조회는 리소스 ARN으로 제한할 수 없어 `Resource: "*"`다. CI 이미지 push, 앱 Bedrock 호출, S3 관측 저장소 등은 포함하지 않는다. JSON 구문과 고객 관리형 정책 크기는 확인했지만 IAM Access Analyzer 및 실제 EKS 생성·변경·삭제는 검증하지 않았다. 실제 plan에서 `eks:DescribeAddonVersions`가 거부되는 현재 상태도 코드 개발을 막지 않는다.
+
 | 단계 | 추가 범위 |
 | --- | --- |
-| EKS/MNG | EKS cluster/nodegroup/add-on/access entry/Pod Identity, EC2 Launch Template·전용 SG, 필요한 service-linked role, 이름 제한 IAM role/policy 및 PassRole |
+| EKS/MNG | 초안을 위 파일로 준비. 실제 권한 검증과 운영 입력 확정은 배포 준비 시 수행 |
 | 이미지 CI | ECR repository 관리와 별도의 CI push 역할. GitHub OIDC trust |
 | 관측/Secret | 로그/trace S3 bucket, CloudWatch, Secrets Manager 메타데이터 및 workload별 IAM 역할 |
 | DNS | 사용할 Route53 zone/record와 cert-manager 역할 |

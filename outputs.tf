@@ -12,6 +12,6 @@ output "network" {
 }
 
 output "eks" {
-  description = "EKS 활성화 시 클러스터, 노드 그룹, ECR 및 add-on 정보."
-  value       = try(module.eks[0], null)
+  description = "클러스터, 노드 그룹, ECR 및 add-on 정보."
+  value       = module.eks
 }

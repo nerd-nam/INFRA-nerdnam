@@ -1,0 +1,206 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadEksCatalog",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeClusterVersions",
+        "eks:DescribeAddonVersions",
+        "eks:DescribeAddonConfiguration",
+        "eks:ListClusters",
+        "eks:ListAccessPolicies"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageProjectEks",
+      "Effect": "Allow",
+      "Action": [
+        "eks:CreateCluster",
+        "eks:DescribeCluster",
+        "eks:UpdateClusterConfig",
+        "eks:UpdateClusterVersion",
+        "eks:DeleteCluster",
+        "eks:DescribeUpdate",
+        "eks:ListUpdates",
+        "eks:CreateNodegroup",
+        "eks:DescribeNodegroup",
+        "eks:UpdateNodegroupConfig",
+        "eks:UpdateNodegroupVersion",
+        "eks:DeleteNodegroup",
+        "eks:ListNodegroups",
+        "eks:CreateAddon",
+        "eks:DescribeAddon",
+        "eks:UpdateAddon",
+        "eks:DeleteAddon",
+        "eks:ListAddons",
+        "eks:CreateAccessEntry",
+        "eks:DescribeAccessEntry",
+        "eks:UpdateAccessEntry",
+        "eks:DeleteAccessEntry",
+        "eks:ListAccessEntries",
+        "eks:AssociateAccessPolicy",
+        "eks:DisassociateAccessPolicy",
+        "eks:ListAssociatedAccessPolicies",
+        "eks:CreatePodIdentityAssociation",
+        "eks:DescribePodIdentityAssociation",
+        "eks:UpdatePodIdentityAssociation",
+        "eks:DeletePodIdentityAssociation",
+        "eks:ListPodIdentityAssociations",
+        "eks:TagResource",
+        "eks:UntagResource",
+        "eks:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:eks:ap-northeast-2:082139775699:cluster/nerdnam-dev",
+        "arn:aws:eks:ap-northeast-2:082139775699:nodegroup/nerdnam-dev/*",
+        "arn:aws:eks:ap-northeast-2:082139775699:addon/nerdnam-dev/*",
+        "arn:aws:eks:ap-northeast-2:082139775699:access-entry/nerdnam-dev/*",
+        "arn:aws:eks:ap-northeast-2:082139775699:podidentityassociation/nerdnam-dev/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageProjectRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:DeleteRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:UpdateRole",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cluster",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-node",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cni",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-ebs-csi"
+      ]
+    },
+    {
+      "Sid": "AttachOnlyRequiredPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cluster",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-node",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cni",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-ebs-csi"
+      ],
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+            "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+            "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly",
+            "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+            "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "PassProjectRolesToServices",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cluster",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-node",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cni",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-ebs-csi"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "eks.amazonaws.com",
+            "ec2.amazonaws.com",
+            "pods.eks.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "CreateRequiredServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+        "arn:aws:iam::082139775699:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup",
+        "arn:aws:iam::082139775699:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "eks.amazonaws.com",
+            "eks-nodegroup.amazonaws.com",
+            "autoscaling.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageLaunchTemplatesInSeoul",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateLaunchTemplate",
+        "ec2:CreateLaunchTemplateVersion",
+        "ec2:ModifyLaunchTemplate",
+        "ec2:DeleteLaunchTemplate",
+        "ec2:DeleteLaunchTemplateVersions"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageProjectRepositories",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DescribeRepositories",
+        "ecr:DeleteRepository",
+        "ecr:PutImageTagMutability",
+        "ecr:PutImageScanningConfiguration",
+        "ecr:TagResource",
+        "ecr:UntagResource",
+        "ecr:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:ecr:ap-northeast-2:082139775699:repository/nerdnam-dev/web",
+        "arn:aws:ecr:ap-northeast-2:082139775699:repository/nerdnam-dev/api",
+        "arn:aws:ecr:ap-northeast-2:082139775699:repository/nerdnam-dev/ai"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    }
+  ]
+}

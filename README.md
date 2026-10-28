@@ -7,7 +7,7 @@ Terraform으로 AWS 기반을 만들고 Argo CD로 EKS 애플리케이션과 관
 - [EKS 기반 작업계획과 실행 안내](docs/EKS-기반-작업계획.md)
 - 현재 구현: Terraform S3 backend·AWS provider, VPC와 EKS 모듈. VPC는 생성 후 사용자 요청으로 삭제됐고 EKS는 아직 적용하지 않았습니다.
 - 초기 구성: 동일 EKS의 고정 CPU 워커 3대(app/platform/data). PostgreSQL·Redis도 data 워커의 StatefulSet으로 배포합니다. AI는 FastAPI를 통해 Bedrock Nova 2 Lite와 Titan V2를 호출합니다.
-- 현재 단계: VPC 재적용과 EKS를 위한 관리자 IP·IAM·버전·예산 확정이 필요합니다. Terraform apply는 사용자가 직접 실행합니다.
+- 현재 단계: AWS 생성 없이 VPC·EKS 코드를 검토하고 검증합니다. 실제 배포나 사용자 apply 없이 후속 코드를 계속 작성합니다. 관리자 IP·IAM·버전·예산의 실제 값은 배포 준비 시 확정합니다.
 
 - PostgreSQL S3 일일 백업·새 PVC 복원 시험은 후속 작업으로 보류합니다.
 - 각 구현 단계는 검증 후 커밋합니다.
@@ -35,13 +35,13 @@ terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
-terraform plan -out=dev.tfplan
-terraform show dev.tfplan
+# 실제 AWS plan이 필요할 때만 실제 입력값과 조회 권한을 준비합니다.
+# terraform plan -var-file=eks.dev.tfvars
 ```
 
-`terraform test`는 mock AWS provider만 사용합니다. 테스트 안의 apply는 메모리의 가짜 리소스를 만드는 동작이며 AWS 리소스를 생성하지 않습니다. 실제 생성은 검토한 plan에 대해 `terraform apply dev.tfplan`을 실행할 때 이루어집니다. 적용 후 `terraform output network`로 다음 단계 입력값을 확인합니다.
+`terraform test`는 mock AWS provider만 사용합니다. 테스트 안의 apply는 메모리의 가짜 리소스를 만드는 동작이며 AWS 리소스를 생성하지 않습니다. 현재 작업은 코드 작성·검증까지이며 실제 apply는 실행하지 않습니다. VPC와 EKS는 항상 루트 설정에 포함되고, 별도 활성화 스위치는 없습니다.
 
-NAT Gateway·EIP는 적용 시점부터 비용이 발생합니다. private-c가 public-a NAT를 사용하므로 AZ 간 전송과 단일 NAT 장애 영향도 고려합니다. 이번 코드에는 EKS·EC2·NLB·DB 백업 리소스가 없습니다.
+NAT Gateway·EIP는 적용 시점부터 비용이 발생합니다. private-c가 public-a NAT를 사용하므로 AZ 간 전송과 단일 NAT 장애 영향도 고려합니다. 현재 코드는 EKS·관리형 노드 그룹·ECR까지 포함합니다. NLB와 DB 백업 리소스는 아직 포함하지 않습니다.
 
 S3 backend 접근이 막혀 있어도 로컬 검증은 별도 Terraform 데이터 디렉터리에서 가능합니다. 이 방식으로 실제 plan/apply를 우회하지 않습니다.
 
@@ -53,4 +53,4 @@ terraform test
 unset TF_DATA_DIR
 ```
 
-현재 확인 결과와 재개 조건은 [VPC 단계 작업 기록](docs/VPC-단계-작업기록.md)을 참고합니다.
+현재 검증 결과는 [EKS 코드 작업계획](docs/EKS-기반-작업계획.md), 이전 적용·삭제 이력은 [VPC 단계 작업 기록](docs/VPC-단계-작업기록.md)을 참고합니다.

@@ -1,5 +1,4 @@
 # 실제 파일은 eks.dev.tfvars로 만들고 실제 관리자 ARN과 고정 공인 IP를 넣는다.
-enable_eks              = true
 eks_admin_principal_arn = "arn:aws:iam::082139775699:user/nerdnam-infra"
 eks_public_access_cidrs = ["203.0.113.1/32"]
 # AWS에서 호환 버전을 조회한 뒤 add-on 5개의 버전을 고정한다.
