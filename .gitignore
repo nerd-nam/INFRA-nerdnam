@@ -10,3 +10,6 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# plan JSON에는 인프라/비밀값이 포함될 수 있다.
+*.tfplan.json

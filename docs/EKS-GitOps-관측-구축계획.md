@@ -4,6 +4,8 @@
 
 > 2026-10-28 범위 변경: PostgreSQL 일일 S3 백업과 새 PVC 복원 시험은 사용자 요청으로 후속 작업으로 미룬다. 백업 bucket·CronJob·IAM·snapshot 추가도 초기 구축에 포함하지 않는다. 현재는 PVC 영속성/보존과 Pod 재시작 후 데이터 유지까지만 검증한다. 단계별 구현·검증 후 커밋한다.
 
+> 진행 상태: VPC 모듈을 기존 Terraform 루트에 구현했고 fmt/validate 및 mock 테스트 3개를 통과했다. 실제 plan/apply는 기존 S3 state 접근 403으로 미완료다. [VPC 단계 작업 기록](VPC-단계-작업기록.md)을 따른다.
+
 ## 1. 검토 범위와 확인한 변화
 
 | 저장소 | 검토 기준 | 확인한 내용 |
@@ -160,10 +162,11 @@ AWS Terraform 루트는 당분간 기존 저장소 루트를 유지하고 `modul
 
 ```text
 INFRA-nerdnam/
-  terraform/
-    modules/{network,eks,iam,storage}/
-    envs/dev/aws/
-    envs/dev/bootstrap/
+  *.tf                           # 현재 dev AWS 루트, 기존 backend 유지
+  modules/network/               # 구현 완료
+  modules/{eks,iam,storage}/      # 이후 단계에서 추가
+  bootstrap/                     # 이후 Argo 전용 루트/state
+  tests/network.tftest.hcl        # 실제 AWS 생성 없는 mock 검증
   gitops/
     applications/                 # root, platform, data, observability, app
     platform/                    # LBC, Traefik, cert-manager, secrets
@@ -380,13 +383,13 @@ data 노드에서 DB·Redis의 메모리 limit, PostgreSQL work_mem/연결 수, 
 ### 첫 구현 작업: VPC Terraform
 
 1. 기존 S3 backend key와 잠금 설정을 보존한다. 루트 이동이 필요하면 state 백업 후 연결 유지 여부를 확인한다.
-2. `vpc_cidr`, AZ, public/private subnet CIDR, 공통 tags를 입력으로 받는 network 모듈을 작성한다.
+2. `vpc_cidr`와 AZ를 입력으로 받는 network 모듈을 작성한다. 구현에서는 IPv4 /16에서 public /24와 private /20을 자동 계산해 비중첩을 보장하고, 공통 tags는 기존 provider 설정을 상속한다.
 3. VPC DNS support/hostnames, IGW 1개, subnet 2개, NAT 1개/EIP, route table 2개와 association, S3 Gateway endpoint를 선언한다.
 4. public subnet은 NLB용, private subnet은 내부용 tag를 지정한다. app 공인 주소 부여 방식과 platform/data 공인 IP 미할당을 명시한다.
 5. `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, route table/NAT 식별자를 다음 단계 입력으로 출력한다. DB 포트의 인터넷 개방 규칙은 만들지 않는다.
 6. fmt/validate와 실제 계정 plan을 확인하고 예상 월 비용과 변경 목록을 기록한 후 적용 단계로 진행한다.
 
-이 문서는 계획 산출물이다. terraform plan/apply, chart 설치, cloud 리소스 생성, 비밀값 입력, application 코드 변경은 이번 작업에서 수행하지 않았다.
+VPC 코드는 구현·로컬 검증을 마쳤다. 기존 S3 state 접근이 막혀 실제 plan/apply는 미완료이며, chart 설치·cloud 리소스 생성·비밀값 입력·application 코드 변경은 수행하지 않았다.
 
 ## 10. 비용을 결정하는 항목
 
