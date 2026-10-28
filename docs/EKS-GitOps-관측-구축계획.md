@@ -4,7 +4,7 @@
 
 > 2026-10-28 범위 변경: PostgreSQL 일일 S3 백업과 새 PVC 복원 시험은 사용자 요청으로 후속 작업으로 미룬다. 백업 bucket·CronJob·IAM·snapshot 추가도 초기 구축에 포함하지 않는다. 현재는 PVC 영속성/보존과 Pod 재시작 후 데이터 유지까지만 검증한다. 단계별 구현·검증 후 커밋한다.
 
-> 진행 상태: VPC 모듈을 기존 Terraform 루트에 구현했고 fmt/validate 및 mock 테스트 3개를 통과했다. 실제 plan/apply는 기존 S3 state 접근 403으로 미완료다. [VPC 단계 작업 기록](VPC-단계-작업기록.md)을 따른다.
+> 진행 상태: VPC 모듈을 기존 Terraform 루트에 구현하고 AWS에 적용했다. 적용 후 plan에 변경이 없으며 NAT와 라우팅이 정상 상태다. [VPC 단계 작업 기록](VPC-단계-작업기록.md)을 따른다.
 
 ## 1. 검토 범위와 확인한 변화
 

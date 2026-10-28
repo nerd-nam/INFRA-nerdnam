@@ -15,8 +15,8 @@
 4. STS 신원, state HeadObject, Terraform init/plan 순서로 확인한다. 액세스 키 원문은 저장소나 채팅에 넣지 않는다.
 
 ```sh
-aws sts get-caller-identity --profile nerdnam-terraform
-aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an --key dev/terraform.tfstate --profile nerdnam-terraform
+aws sts get-caller-identity --profile nerdnam-infra
+aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an --key dev/terraform.tfstate --profile nerdnam-infra
 ```
 
 ## 정책의 범위와 제한
@@ -26,8 +26,8 @@ aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an 
 - network 정책은 리전과 작업 종류를 제한한다. `Resource: "*"`이므로 **nerdnam 태그가 있는 리소스에만 한정되는 정책은 아니다.** 서울의 다른 네트워크도 변경할 수 있고 EC2 태그도 변경할 수 있다. 프로젝트 격리는 리소스별 ARN/태그 조건을 추가 검증하는 후속 작업이다. 이를 완전한 최소 권한 정책이라고 부르지 않는다.
 - default security group 규칙을 비우는 코드 때문에 revoke 권한이 필요하고, 설정 변경/복구 경로를 위해 authorize도 포함한다. EC2 인스턴스 실행·종료, SG 신규 생성, IAM 관리 권한은 현재 파일에 없다.
 - 기존 AmazonEC2FullAccess/AdministratorAccess 등 넓은 정책을 함께 붙이면 이 파일의 제한이 사용자 전체 권한 제한이 되지 않는다. 그룹·사용자에 연결된 전체 정책을 함께 확인한다.
-- 현재 S3 403은 신규 사용자만 만든다고 해결되지 않는다. 정확한 bucket/key, identity policy, bucket policy, permissions boundary/SCP의 deny, KMS 사용 여부를 확인한다.
-- JSON 구조와 현재 Terraform 리소스/API 목록은 대조했지만 AWS IAM Access Analyzer 검사나 실제 plan/apply로 권한 충분성을 검증한 상태는 아니다.
+- 이전 사용자 `terraform`의 S3 403 이후 `nerdnam-infra` 사용자로 backend 접근과 VPC 생성에 성공했다. 403의 구체적인 원인과 각 연결 정책은 확인하지 않았다.
+- 새 사용자로 현재 VPC 생성 및 적용 후 plan이 성공했다. 실제 사용자에게 연결된 모든 정책은 확인하지 않았으므로 이 두 JSON만으로 충분한지, 삭제·변경 경로도 동작하는지는 검증되지 않았다. AWS IAM Access Analyzer 검사도 수행하지 않았다.
 
 ## 후속 단계에서 추가할 권한
 
