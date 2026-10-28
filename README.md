@@ -3,6 +3,7 @@
 Terraform으로 AWS 기반을 만들고 Argo CD로 EKS 애플리케이션과 관측 도구를 배포하기 위한 저장소입니다.
 
 - [현재 구축 계획: EKS · GitOps · 관측](docs/EKS-GitOps-관측-구축계획.md)
+- [Terraform 실행 그룹 IAM 정책](iam/README.md)
 - 현재 구현: Terraform S3 backend·AWS provider, VPC network 모듈. EKS·GitOps는 다음 단계입니다. AWS 적용은 아직 하지 않았습니다.
 - 초기 구성: 동일 EKS의 고정 CPU 워커 3대(app/platform/data). PostgreSQL·Redis도 data 워커의 StatefulSet으로 배포합니다. AI는 FastAPI를 통해 Bedrock Nova 2 Lite와 Titan V2를 호출합니다.
 - 현재 단계: VPC 코드 검증 후 기존 S3 state 접근 문제를 해결하고 실제 plan을 확인합니다.
