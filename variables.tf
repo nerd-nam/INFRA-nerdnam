@@ -15,3 +15,32 @@ variable "availability_zones" {
     private = "ap-northeast-2c"
   }
 }
+
+variable "enable_eks" {
+  description = "VPC 적용 후 EKS 생성을 명시적으로 활성화한다."
+  type        = bool
+  default     = false
+}
+variable "eks_kubernetes_version" {
+  type    = string
+  default = "1.35"
+}
+variable "eks_admin_principal_arn" {
+  description = "EKS 관리자 IAM 사용자 또는 역할 ARN."
+  type        = string
+  default     = ""
+}
+variable "eks_public_access_cidrs" {
+  description = "관리자가 접속할 고정 공인 IPv4 CIDR 목록."
+  type        = list(string)
+  default     = []
+}
+variable "eks_instance_types" {
+  type    = object({ app = string, platform = string, data = string })
+  default = { app = "m7i.xlarge", platform = "m7i.xlarge", data = "m7i.large" }
+}
+variable "eks_addon_versions" {
+  description = "add-on 호환 버전 고정값. 비어 있으면 AWS 기본 버전을 조회한다."
+  type        = map(string)
+  default     = {}
+}
