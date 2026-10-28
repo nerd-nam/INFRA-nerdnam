@@ -27,7 +27,7 @@ aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an 
 - default security group 규칙을 비우는 코드 때문에 revoke 권한이 필요하고, 설정 변경/복구 경로를 위해 authorize도 포함한다. EC2 인스턴스 실행·종료, SG 신규 생성, IAM 관리 권한은 현재 파일에 없다.
 - 기존 AmazonEC2FullAccess/AdministratorAccess 등 넓은 정책을 함께 붙이면 이 파일의 제한이 사용자 전체 권한 제한이 되지 않는다. 그룹·사용자에 연결된 전체 정책을 함께 확인한다.
 - 이전 사용자 `terraform`의 S3 403 이후 `nerdnam-infra` 사용자로 backend 접근과 VPC 생성에 성공했다. 403의 구체적인 원인과 각 연결 정책은 확인하지 않았다.
-- 새 사용자로 현재 VPC 생성 및 적용 후 plan이 성공했다. 실제 사용자에게 연결된 모든 정책은 확인하지 않았으므로 이 두 JSON만으로 충분한지, 삭제·변경 경로도 동작하는지는 검증되지 않았다. AWS IAM Access Analyzer 검사도 수행하지 않았다.
+- 새 사용자로 VPC 생성 후 사용자의 요청에 따라 삭제했다. 삭제 도중 Elastic IP 연결 해제 권한 부족을 확인해 정책 파일에 `ec2:DisassociateAddress`를 추가했다. 이 수정은 AWS에 자동 반영되지 않는다. 실제 사용자에게 연결된 모든 정책은 확인하지 않았고, 수정된 정책만으로 모든 변경·삭제 경로가 동작하는지도 검증되지 않았다.
 
 ## 후속 단계에서 추가할 권한
 
