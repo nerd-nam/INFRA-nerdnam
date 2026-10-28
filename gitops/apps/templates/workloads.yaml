@@ -18,7 +18,11 @@ metadata:
 spec:
   type: ClusterIP
   selector: {app: {{ $name }}}
-  ports: [{name: http, port: {{ (index $.Values $name).port }}, targetPort: http}]
+  ports:
+    - {name: http, port: {{ (index $.Values $name).port }}, targetPort: http}
+    {{- with (index $.Values $name).managementPort }}
+    - {name: management, port: {{ . }}, targetPort: management}
+    {{- end }}
 {{- end }}
 ---
 # FE: Next.js standalone. 이미지 빌드 때 API_ORIGIN=http://api.nerdnam.svc.cluster.local:8080 이어야 한다(rewrites 가 빌드 때 정해짐).
@@ -87,13 +91,17 @@ spec:
       containers:
         - name: api
           image: {{ include "apps.image" (dict "root" $ "name" "api") | quote }}
-          ports: [{name: http, containerPort: {{ $api.port }}}]
+          # actuator(probe·지표·작업 비우기)는 관리 포트에만 있다(BE #42·#44). Ingress 에는 넣지 않는다.
+          ports:
+            - {name: http, containerPort: {{ $api.port }}}
+            - {name: management, containerPort: {{ $api.managementPort }}}
           # 비밀값: backend-secrets (OAuth 키 + data 비밀값에서 온 DB·Redis 비밀번호, gitops/secrets)
           envFrom:
             - secretRef: {name: backend-secrets}
           env:
             - {name: SPRING_PROFILES_ACTIVE, value: {{ $api.profile | quote }}}
             - {name: JAVA_TOOL_OPTIONS, value: {{ $api.javaOptions | quote }}}
+            - {name: MANAGEMENT_PORT, value: {{ $api.managementPort | quote }}}
             - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres.data.svc.cluster.local:5432/nerdnam"}
             - {name: SPRING_DATASOURCE_USERNAME, value: nerdnam_app}
             - {name: SPRING_FLYWAY_USER, value: nerdnam_migrator}
@@ -111,19 +119,20 @@ spec:
             - {name: NERDNAM_AI_BASE_URL, value: "http://ai.nerdnam.svc.cluster.local:{{ $ai.port }}"}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $api.resources | nindent 12 }}
-          # 지금 BE 보안 설정은 /actuator/health 만 열어 둔다(health/liveness·readiness 는 401).
-          # 그래서 liveness 는 프로세스(포트)만 보고, DB·Redis 상태는 readiness 에만 반영한다.
+          # liveness = 프로세스만(livenessState), readiness = readinessState + db + redis (BE #42).
+          # 작업 비우기(drain) 중에는 readiness 가 REFUSING_TRAFFIC 이 되어 Service 에서 빠진다(BE #45).
           startupProbe:
-            tcpSocket: {port: http}
+            httpGet: {path: /actuator/health/liveness, port: management}
             periodSeconds: 5
             failureThreshold: 60    # Flyway migration 포함 최대 5분
           readinessProbe:
-            httpGet: {path: /actuator/health, port: http}
+            httpGet: {path: /actuator/health/readiness, port: management}
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            tcpSocket: {port: http}
+            httpGet: {path: /actuator/health/liveness, port: management}
             periodSeconds: 20
+            timeoutSeconds: 3
             failureThreshold: 3
           volumeMounts:
             - {name: tmp, mountPath: /tmp}
@@ -162,17 +171,16 @@ spec:
             - {name: LLM_MODEL, value: {{ $ai.llmModel | quote }}}
             - {name: EMBED_MODEL_ID, value: {{ $ai.embedModel | quote }}}
             - {name: AWS_EC2_METADATA_DISABLED, value: "true"}   # 노드 역할로 넘어가지 않게
-            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $ai.resources | nindent 12 }}
-          # /health 는 모델 상태가 loading·error 여도 200 이다. 프로세스 확인용으로만 쓴다.
-          # 모델이 준비되지 않은 동안 요청은 503 → BE 가 GPU_UNAVAILABLE 로 처리한다.
+          # /livez = 프로세스, /readyz = 첫 연결 확인이 끝났고 LLM·임베딩 중 하나라도 쓸 수 있음 (AI #35).
+          # 둘 다 Bedrock 을 부르지 않고 저장된 상태만 읽는다. 시작 직후 연결 확인(유료 짧은 호출)이 끝나야 Ready.
           readinessProbe:
-            httpGet: {path: /health, port: http}
+            httpGet: {path: /readyz, port: http}
             periodSeconds: 10
             timeoutSeconds: 3
           livenessProbe:
-            httpGet: {path: /health, port: http}
+            httpGet: {path: /livez, port: http}
             periodSeconds: 20
             timeoutSeconds: 3
             failureThreshold: 3

@@ -19,11 +19,12 @@ web:
 
 api:
   port: 8080
+  managementPort: 8081   # actuator 전용(probe·/actuator/prometheus·/actuator/aijob). 공개 경로·web 에서 닿지 않는다
   uid: 10001      # BE 이미지의 nerdnam 사용자
   gid: 10001
   profile: prod   # local 이 아닌 프로필. local 은 개발 시드·헤더 인증·AI stub 을 켠다
   # 앱 시작 Flyway(migrator 계정)를 쓰므로 두 버전이 함께 뜨지 않게 Recreate 로 교체한다.
-  # 진행 중인 AI 작업(메모리 큐)은 교체 때 끊긴다 → 점검 창에서 배포한다 (docs/앱-배포-작업계획.md).
+  # 교체 전 /actuator/aijob 으로 접수 중지·비우기(BE #45). 못 끝낸 작업은 종료 때 실패로 정리된다.
   terminationGracePeriodSeconds: 90
   javaOptions: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
   resources:
@@ -36,7 +37,7 @@ ai:
   gid: 65532
   llmModel: global.amazon.nova-2-lite-v1:0     # modules/workload 의 IAM 범위와 같아야 한다
   embedModel: amazon.titan-embed-text-v2:0
-  # /match·/guide 응답 시간 제한이 300초다. 종료 신호 뒤에도 진행 중인 요청을 끝낼 시간을 준다.
+  # /match·/guide 응답 시간 제한이 300초다. 이미지의 uvicorn 이 종료 신호 뒤 최대 300초 기다리므로(AI #34) 그보다 길게.
   terminationGracePeriodSeconds: 330
   resources:
     requests: {cpu: 250m, memory: 512Mi}

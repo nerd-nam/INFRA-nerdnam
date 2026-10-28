@@ -268,15 +268,24 @@ def check_apps(local):
         ports[name] = container['ports'][0]['containerPort']
         service = services[name]
         assert service['spec'].get('type', 'ClusterIP') == 'ClusterIP' and service['spec']['selector'] == {'app': name}, where
-        assert service['spec']['ports'][0]['port'] == ports[name], where
-        for probe in ['readinessProbe', 'livenessProbe', 'startupProbe']:
-            assert '/actuator/health/' not in json.dumps(container.get(probe, {})), \
-                f'{where}: BE security only permits /actuator/health'
+        assert service['spec']['ports'][0]['port'] == ports[name] and service['spec']['ports'][0]['name'] == 'http', where
+        assert all(p['name'] in ('http', 'management') for p in container['ports']), where
 
     api = deployments['api']
     assert api['spec']['strategy'] == {'type': 'Recreate'}, 'Flyway at startup: never run two BE versions together'
     api_container = api['spec']['template']['spec']['containers'][0]
     api_env = {e['name']: e.get('value') for e in api_container['env']}
+    # actuator 는 관리 포트에만 있다(BE #42·#44): probe 는 그 포트의 liveness·readiness 그룹을 본다.
+    management = next(p['containerPort'] for p in api_container['ports'] if p['name'] == 'management')
+    assert api_env['MANAGEMENT_PORT'] == str(management) and management != ports['api']
+    assert api_container['livenessProbe']['httpGet'] == {'path': '/actuator/health/liveness', 'port': 'management'}
+    assert api_container['startupProbe']['httpGet'] == {'path': '/actuator/health/liveness', 'port': 'management'}
+    assert api_container['readinessProbe']['httpGet'] == {'path': '/actuator/health/readiness', 'port': 'management'}
+    assert {'name': 'management', 'port': management, 'targetPort': 'management'} in services['api']['spec']['ports']
+    ai_container = deployments['ai']['spec']['template']['spec']['containers'][0]
+    assert ai_container['livenessProbe']['httpGet']['path'] == '/livez' and ai_container['readinessProbe']['httpGet']['path'] == '/readyz'
+    # AI 이미지의 uvicorn 종료 대기(300초)보다 종료 유예가 길어야 진행 중 요청을 끝낸다(AI #34).
+    assert deployments['ai']['spec']['template']['spec']['terminationGracePeriodSeconds'] > 300
     assert api_env['SPRING_PROFILES_ACTIVE'] not in ('local', '', None)
     assert api_env['SPRING_DATASOURCE_USERNAME'] == 'nerdnam_app' and api_env['SPRING_FLYWAY_USER'] == 'nerdnam_migrator'
     assert api_env['SPRING_DATASOURCE_URL'] == 'jdbc:postgresql://postgres.data.svc.cluster.local:5432/nerdnam'
