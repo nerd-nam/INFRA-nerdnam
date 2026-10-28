@@ -1,0 +1,41 @@
+{{- $host := required "environment.appHostname is required" .Values.environment.appHostname }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nerdnam-web
+  namespace: nerdnam
+spec:
+  secretName: nerdnam-web-tls
+  dnsNames: [{{ $host | quote }}]
+  issuerRef:
+    name: nerdnam-acme
+    kind: ClusterIssuer
+---
+# 로그인·API 는 BE 로, 나머지 화면은 FE 로. /actuator·AI 는 공개 경로에 없다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nerdnam-web
+  namespace: nerdnam
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [{{ $host | quote }}]
+      secretName: nerdnam-web-tls
+  rules:
+    - host: {{ $host | quote }}
+      http:
+        paths:
+          {{- range $path := list "/api" "/oauth2" "/login/oauth2" }}
+          - path: {{ $path }}
+            pathType: Prefix
+            backend:
+              service: {name: api, port: {number: {{ $.Values.api.port }}}}
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: web, port: {number: {{ .Values.web.port }}}}

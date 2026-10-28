@@ -1,0 +1,185 @@
+{{- $web := .Values.web }}
+{{- $api := .Values.api }}
+{{- $ai := .Values.ai }}
+{{- range $name := list "web" "api" "ai" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: nerdnam
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: nerdnam
+spec:
+  type: ClusterIP
+  selector: {app: {{ $name }}}
+  ports: [{name: http, port: {{ (index $.Values $name).port }}, targetPort: http}]
+{{- end }}
+---
+# FE: Next.js standalone. 이미지 빌드 때 API_ORIGIN=http://api.nerdnam.svc.cluster.local:8080 이어야 한다(rewrites 가 빌드 때 정해짐).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      serviceAccountName: web
+      terminationGracePeriodSeconds: 30
+      {{- include "apps.podSecurity" (dict "root" $ "app" $web) | nindent 6 }}
+      containers:
+        - name: web
+          image: {{ include "apps.image" (dict "root" $ "name" "web") | quote }}
+          ports: [{name: http, containerPort: {{ $web.port }}}]
+          env:
+            - {name: API_ORIGIN, value: "http://api.nerdnam.svc.cluster.local:{{ $api.port }}"}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $web.resources | nindent 12 }}
+          readinessProbe:
+            httpGet: {path: /favicon.ico, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop: {sleep: {seconds: 5}}   # Service endpoint 에서 빠질 시간
+          volumeMounts:
+            - {name: cache, mountPath: /app/.next/cache}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: cache
+          emptyDir: {sizeLimit: 256Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+    spec:
+      serviceAccountName: api
+      terminationGracePeriodSeconds: {{ $api.terminationGracePeriodSeconds }}
+      {{- include "apps.podSecurity" (dict "root" $ "app" $api) | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "apps.image" (dict "root" $ "name" "api") | quote }}
+          ports: [{name: http, containerPort: {{ $api.port }}}]
+          # 비밀값: backend-secrets (OAuth 키 + data 비밀값에서 온 DB·Redis 비밀번호, gitops/secrets)
+          envFrom:
+            - secretRef: {name: backend-secrets}
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: {{ $api.profile | quote }}}
+            - {name: JAVA_TOOL_OPTIONS, value: {{ $api.javaOptions | quote }}}
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres.data.svc.cluster.local:5432/nerdnam"}
+            - {name: SPRING_DATASOURCE_USERNAME, value: nerdnam_app}
+            - {name: SPRING_FLYWAY_USER, value: nerdnam_migrator}
+            - {name: REDIS_HOST, value: redis.data.svc.cluster.local}
+            - {name: REDIS_PORT, value: "6379"}
+            - {name: SPRING_DATA_REDIS_USERNAME, value: api}
+            # Traefik 이 TLS 를 끝내고 X-Forwarded-* 를 붙인다. OAuth 콜백 주소·Secure 쿠키가 https 로 정해진다.
+            - {name: SERVER_FORWARD_HEADERS_STRATEGY, value: native}
+            - {name: SERVER_SERVLET_SESSION_COOKIE_SECURE, value: "true"}
+            - {name: NERDNAM_AUTH_MODE, value: session}
+            - {name: NERDNAM_AUTH_WEB_ORIGIN, value: {{ include "apps.publicOrigin" $ | quote }}}
+            - {name: NERDNAM_AUTH_LOGIN_SUCCESS_URL, value: "{{ include "apps.publicOrigin" $ }}/"}
+            - {name: NERDNAM_AUTH_LOGIN_FAILURE_URL, value: "{{ include "apps.publicOrigin" $ }}/?login=failed"}
+            - {name: NERDNAM_AI_STUB, value: "false"}
+            - {name: NERDNAM_AI_BASE_URL, value: "http://ai.nerdnam.svc.cluster.local:{{ $ai.port }}"}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $api.resources | nindent 12 }}
+          # 지금 BE 보안 설정은 /actuator/health 만 열어 둔다(health/liveness·readiness 는 401).
+          # 그래서 liveness 는 프로세스(포트)만 보고, DB·Redis 상태는 readiness 에만 반영한다.
+          startupProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 5
+            failureThreshold: 60    # Flyway migration 포함 최대 5분
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: {port: http}
+            periodSeconds: 20
+            failureThreshold: 3
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: ai}
+  template:
+    metadata:
+      labels: {app: ai}
+    spec:
+      # EKS Pod Identity(modules/workload)가 nerdnam/ai ServiceAccount 에 Bedrock 역할을 준다.
+      # Bedrock API 키(AWS_BEARER_TOKEN_BEDROCK)·정적 AWS 키는 넣지 않는다.
+      serviceAccountName: ai
+      terminationGracePeriodSeconds: {{ $ai.terminationGracePeriodSeconds }}
+      {{- include "apps.podSecurity" (dict "root" $ "app" $ai) | nindent 6 }}
+      containers:
+        - name: ai
+          image: {{ include "apps.image" (dict "root" $ "name" "ai") | quote }}
+          ports: [{name: http, containerPort: {{ $ai.port }}}]
+          env:
+            - {name: AI_MODE, value: real}
+            - {name: AWS_REGION, value: {{ required "environment.region is required" $.Values.environment.region | quote }}}
+            - {name: LLM_MODEL, value: {{ $ai.llmModel | quote }}}
+            - {name: EMBED_MODEL_ID, value: {{ $ai.embedModel | quote }}}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}   # 노드 역할로 넘어가지 않게
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $ai.resources | nindent 12 }}
+          # /health 는 모델 상태가 loading·error 여도 200 이다. 프로세스 확인용으로만 쓴다.
+          # 모델이 준비되지 않은 동안 요청은 503 → BE 가 GPU_UNAVAILABLE 로 처리한다.
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: {sleep: {seconds: 5}}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

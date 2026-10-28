@@ -1,0 +1,57 @@
+environment: {}
+# 배포할 때 root 에서 내려오는 값 (예시는 tests/fixtures/gitops-values.yaml):
+#   environment.appHostname   서비스 도메인 (예: nerdnam.example.com)
+#   environment.region        Bedrock 호출 리전
+# 이미지 digest 는 images.yaml (CI 가 PR 로 바꾼다).
+
+placement:
+  nodeSelector:
+    workload: app
+
+# Pod 라벨. gitops/data 의 apiPodLabels(app: api)와 맞아야 BE 가 DB·Redis 에 닿는다.
+web:
+  port: 3000
+  uid: 100        # FE 이미지의 web 사용자 (alpine adduser -S)
+  gid: 101
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 512Mi}
+
+api:
+  port: 8080
+  uid: 10001      # BE 이미지의 nerdnam 사용자
+  gid: 10001
+  profile: prod   # local 이 아닌 프로필. local 은 개발 시드·헤더 인증·AI stub 을 켠다
+  # 앱 시작 Flyway(migrator 계정)를 쓰므로 두 버전이 함께 뜨지 않게 Recreate 로 교체한다.
+  # 진행 중인 AI 작업(메모리 큐)은 교체 때 끊긴다 → 점검 창에서 배포한다 (docs/앱-배포-작업계획.md).
+  terminationGracePeriodSeconds: 90
+  javaOptions: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+  resources:
+    requests: {cpu: 500m, memory: 1536Mi}
+    limits: {memory: 2Gi}
+
+ai:
+  port: 8000
+  uid: 65532      # AI 이미지는 USER 가 없어 root 로 뜬다. 임의의 비root uid 로 실행한다
+  gid: 65532
+  llmModel: global.amazon.nova-2-lite-v1:0     # modules/workload 의 IAM 범위와 같아야 한다
+  embedModel: amazon.titan-embed-text-v2:0
+  # /match·/guide 응답 시간 제한이 300초다. 종료 신호 뒤에도 진행 중인 요청을 끝낼 시간을 준다.
+  terminationGracePeriodSeconds: 330
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 1Gi}
+
+# 클러스터 밖으로 나가는 HTTPS(Google·Kakao OAuth, Bedrock)는 NAT 를 거친다. 사설 대역은 막는다.
+egress:
+  privateRanges: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
+  # EKS Pod Identity Agent (노드의 link-local 주소)
+  podIdentityAgent: 169.254.170.23/32
+
+quota:
+  requests.cpu: "2"
+  requests.memory: 5Gi
+  limits.memory: 7Gi
+  persistentvolumeclaims: "0"
+  services.loadbalancers: "0"
+  services.nodeports: "0"

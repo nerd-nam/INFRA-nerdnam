@@ -21,11 +21,16 @@ run "bootstrap_uses_aws_outputs" {
   variables {
     git_revision    = "test-fixture-only"
     sample_hostname = "sample.example.invalid"
+    app_hostname    = "app.example.invalid"
     acme_email      = "test@example.invalid"
   }
   assert {
     condition     = yamldecode(helm_release.seed.values[0]).environment.vpcId == "vpc-test" && yamldecode(helm_release.seed.values[0]).environment.secretArns.data == "test-data-arn"
     error_message = "AWS output 식별자를 GitOps에 전달해야 합니다."
+  }
+  assert {
+    condition     = yamldecode(helm_release.seed.values[0]).environment.appHostname == "app.example.invalid" && !can(yamldecode(helm_release.seed.values[0]).environment.images)
+    error_message = "서비스 도메인은 bootstrap 입력, 이미지 digest 는 Git(gitops/apps/images.yaml)이 소유해야 합니다."
   }
   assert {
     condition     = yamldecode(helm_release.argocd.values[0]).server.service.type == "ClusterIP"

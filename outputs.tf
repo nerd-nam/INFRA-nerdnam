@@ -20,3 +20,8 @@ output "platform" {
   description = "GitOps controllers의 역할, Secret ARN, DNS zone. Secret 값은 포함하지 않는다."
   value       = module.platform
 }
+
+output "workload" {
+  description = "AI Bedrock 역할과 이미지 CI 역할(GitHub OIDC). 앱 저장소 workflow 에 CI 역할 ARN 을 넣는다."
+  value       = module.workload
+}

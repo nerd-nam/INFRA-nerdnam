@@ -7,6 +7,7 @@ into a cache, verifies their digests, then uses the same checks as offline mode.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -16,7 +17,13 @@ import jsonschema
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'sample']
+LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'apps', 'sample']
+APP_VALUE_FILES = {'apps': ['images.yaml']}
+# Kubernetes 1.35 공식 OpenAPI. 자체 chart 의 기본 객체(Deployment 등)를 모르는 필드·형식 오류까지 엄격히 검사한다.
+K8S_OPENAPI = {
+    'url': 'https://raw.githubusercontent.com/kubernetes/kubernetes/v1.35.0/api/openapi-spec/swagger.json',
+    'digest': '483500149ee52ce5753d75f5639101d985bb4f5e902cc05b1ba7627465d62446',
+}
 # Secrets Manager nerdnam/dev/data JSON 키 계약 (docs/데이터-계층-작업계획.md)
 DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password'}
 BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
@@ -41,9 +48,10 @@ def main():
     def run(command):
         return subprocess.check_output(command, text=True, cwd=ROOT)
 
-    def render(name, chart, namespace, values):
+    def render(name, chart, namespace, values, extra=()):
+        files = [x for value in [*extra, values] for x in ('-f', str(value))]
         raw = run([args.helm, 'template', name, str(chart), '--namespace', namespace,
-                   '--kube-version', '1.35.0', '--include-crds', '-f', str(values)])
+                   '--kube-version', '1.35.0', '--include-crds', *files])
         docs = [x for x in yaml.safe_load_all(raw) if x]
         assert len({(x['apiVersion'], x['kind'], x['metadata'].get('namespace', namespace), x['metadata']['name']) for x in docs}) == len(docs), name
         return docs
@@ -57,11 +65,21 @@ def main():
             raise RuntimeError(f'{archive} missing; use --fetch to fill the cache')
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == item['digest'], f'{name}: checksum mismatch'
 
+    openapi = args.cache / 'kubernetes-openapi-v1.35.0.json'
+    if not openapi.exists() and args.fetch:
+        subprocess.run(['curl', '--fail', '--silent', '--show-error', '--location', K8S_OPENAPI['url'], '-o', str(openapi)], check=True)
+    if not openapi.exists():
+        raise RuntimeError(f'{openapi} missing; use --fetch to fill the cache')
+    assert hashlib.sha256(openapi.read_bytes()).hexdigest() == K8S_OPENAPI['digest'], 'kubernetes openapi checksum mismatch'
+    core = CoreSchema(json.loads(openapi.read_text())['definitions'])
+
     local = {}
     for name in LOCAL_CHARTS:
         chart = ROOT / 'gitops' / name
-        run([args.helm, 'lint', str(chart), '--strict', '--kube-version', '1.35.0', '-f', str(fixture)])
-        local[name] = render('nerdnam-' + name, chart, 'argocd' if name in ['seed', 'root'] else 'nerdnam', fixture)
+        # Argo 와 같은 순서: Application 의 valueFiles(chart 안 파일) 다음 valuesObject(환경 값).
+        extra = [chart / f for f in APP_VALUE_FILES.get(name, [])]
+        run([args.helm, 'lint', str(chart), '--strict', '--kube-version', '1.35.0', *[x for f in [*extra, fixture] for x in ('-f', str(f))]])
+        local[name] = render('nerdnam-' + name, chart, 'argocd' if name in ['seed', 'root'] else 'nerdnam', fixture, extra)
 
     upstream = {'argo-cd': render('argocd', args.cache / 'argo-cd.tgz', 'argocd', ROOT / 'bootstrap/argocd-values.yaml')}
     with tempfile.TemporaryDirectory(prefix='nerdnam-render-') as directory:
@@ -86,6 +104,7 @@ def main():
                     if version.get('served'):
                         schemas[(spec['group'] + '/' + version['name'], spec['names']['kind'])] = version['schema']['openAPIV3Schema']
     custom_count = 0
+    core_count = 0
     for docs in local.values():
         for doc in docs:
             group = doc['apiVersion'].split('/')[0]
@@ -93,6 +112,9 @@ def main():
                 schema = schemas[(doc['apiVersion'], doc['kind'])]
                 jsonschema.Draft7Validator(schema).validate(doc)
                 custom_count += 1
+            else:
+                core.validate(doc)
+                core_count += 1
             assert doc['kind'] != 'Secret', 'Do not put secret values in local GitOps charts'
             assert doc['kind'] != 'HorizontalPodAutoscaler'
 
@@ -137,16 +159,196 @@ def main():
 
     # Missing environment values must fail; example fixtures must not become defaults.
     data_count = check_data_layer(local)
+    app_count = check_apps(local)
 
     rejected = subprocess.run([args.helm, 'template', 'missing-values', str(ROOT / 'gitops/root')],
                               capture_output=True, text=True)
     assert rejected.returncode != 0
     print(f'PASS: {len(LOCAL_CHARTS)} local charts, {len(lock)} pinned upstream charts, '
-          f'{custom_count} custom resources, {scheduled} scheduling checks')
+          f'{custom_count} custom resources, {core_count} core objects (strict 1.35 schema), {scheduled} scheduling checks')
     print('PASS: NLB/TLS, secret boundaries, storage retention and missing-input checks')
     print(f'PASS: data layer ({data_count} StatefulSets): placement, PVC retention, pinned images, '
           'pod security, probes, secret keys, quota and BE<->data network policies')
+    print(f'PASS: apps ({app_count} Deployments): digest-pinned ECR images, placement, pod security, probes, '
+          'public routes, Bedrock identity and namespace traffic policies')
 
+
+
+class CoreSchema:
+    """Kubernetes OpenAPI(v2) 정의로 기본 객체를 검사한다. 정의에 없는 필드는 오류로 본다(kubectl --validate=strict 와 같은 취지)."""
+
+    def __init__(self, definitions):
+        self.defs = definitions
+        self.by_kind = {}
+        for name, schema in definitions.items():
+            for gvk in schema.get('x-kubernetes-group-version-kind', []):
+                api = (gvk['group'] + '/' if gvk['group'] else '') + gvk['version']
+                self.by_kind[(api, gvk['kind'])] = name
+
+    def validate(self, doc):
+        key = (doc['apiVersion'], doc['kind'])
+        assert key in self.by_kind, f'unknown core kind {key}'
+        self._check(doc, {'$ref': '#/definitions/' + self.by_kind[key]}, f"{doc['kind']}/{doc['metadata']['name']}")
+
+    def _check(self, value, schema, path):
+        if '$ref' in schema:
+            name = schema['$ref'].rsplit('/', 1)[-1]
+            if name in ('io.k8s.apimachinery.pkg.api.resource.Quantity', 'io.k8s.apimachinery.pkg.util.intstr.IntOrString'):
+                assert isinstance(value, (str, int, float)) and not isinstance(value, bool), f'{path}: {name}'
+                return
+            schema = self.defs[name]
+        kind = schema.get('type')
+        if kind == 'object' or 'properties' in schema:
+            assert isinstance(value, dict), f'{path}: expected object'
+            props = schema.get('properties', {})
+            for field in schema.get('required', []):
+                assert field in value, f'{path}: missing required {field}'
+            for field, item in value.items():
+                if field in props:
+                    self._check(item, props[field], f'{path}.{field}')
+                elif 'additionalProperties' in schema:
+                    self._check(item, schema['additionalProperties'], f'{path}.{field}')
+                else:
+                    raise AssertionError(f'{path}: unknown field {field!r}')
+        elif kind == 'array':
+            assert isinstance(value, list), f'{path}: expected list'
+            for i, item in enumerate(value):
+                self._check(item, schema['items'], f'{path}[{i}]')
+        elif kind == 'string':
+            assert isinstance(value, str), f'{path}: expected string, got {value!r}'
+        elif kind == 'integer':
+            assert isinstance(value, int) and not isinstance(value, bool), f'{path}: expected integer'
+        elif kind == 'boolean':
+            assert isinstance(value, bool), f'{path}: expected boolean'
+
+
+def check_apps(local):
+    docs = local['apps']
+    by_kind = {}
+    for doc in docs:
+        by_kind.setdefault(doc['kind'], []).append(doc)
+    assert all(x['metadata']['namespace'] == 'nerdnam' for x in docs if x['kind'] != 'Namespace')
+    root_apps = {x['metadata']['name']: x for x in local['root'] if x['kind'] == 'Application'}
+    source = root_apps['nerdnam-apps']['spec']['source']
+    assert source['path'] == 'gitops/apps' and source['helm']['valueFiles'] == APP_VALUE_FILES['apps']
+    # Git 의 images.yaml 만으로는(CI 가 digest 를 채우기 전) 렌더링이 실패해야 한다: 가짜 이미지 기본값 금지.
+    committed = yaml.safe_load((ROOT / 'gitops/apps/images.yaml').read_text())['images']
+    assert set(committed) == {'web', 'api', 'ai'}
+    for name, ref in committed.items():
+        assert ref == '' or re.fullmatch(r'\d{12}\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/nerdnam-dev/' + name + r'@sha256:[0-9a-f]{64}', ref), \
+            f'gitops/apps/images.yaml: {name} must be empty or an ECR digest of nerdnam-dev/{name}'
+
+    deployments = {x['metadata']['name']: x for x in by_kind['Deployment']}
+    assert set(deployments) == {'web', 'api', 'ai'}
+    services = {x['metadata']['name']: x for x in by_kind['Service']}
+    accounts = {x['metadata']['name'] for x in by_kind['ServiceAccount']}
+    ports = {}
+    for name, deployment in deployments.items():
+        spec = deployment['spec']
+        pod = spec['template']['spec']
+        where = f'nerdnam/{name}'
+        labels = spec['template']['metadata']['labels']
+        assert labels == spec['selector']['matchLabels'] == {'app': name}, where
+        assert spec['replicas'] == 1, where
+        assert pod['nodeSelector'] == {'workload': 'app'} and 'tolerations' not in pod, where
+        assert pod['serviceAccountName'] == name and name in accounts, where
+        assert pod['automountServiceAccountToken'] is False and pod['enableServiceLinks'] is False, where
+        assert pod['securityContext']['runAsNonRoot'] is True and pod['securityContext']['runAsUser'] > 0, where
+        (container,) = pod['containers']
+        assert re.fullmatch(r'\d{12}\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/nerdnam-dev/' + name + r'@sha256:[0-9a-f]{64}',
+                            container['image']), f'{where}: image must be the {name} ECR repository pinned by digest'
+        security = container['securityContext']
+        assert security['readOnlyRootFilesystem'] is True and security['allowPrivilegeEscalation'] is False, where
+        assert security['capabilities']['drop'] == ['ALL'], where
+        assert 'readinessProbe' in container and 'livenessProbe' in container, where
+        assert 'memory' in container['resources']['limits'] and 'cpu' in container['resources']['requests'], where
+        env = {e['name']: e.get('value') for e in container.get('env', [])}
+        assert not any(k.startswith('AWS_ACCESS_KEY') or k in ('AWS_SECRET_ACCESS_KEY', 'AWS_BEARER_TOKEN_BEDROCK') for k in env), \
+            f'{where}: no static AWS credentials'
+        ports[name] = container['ports'][0]['containerPort']
+        service = services[name]
+        assert service['spec'].get('type', 'ClusterIP') == 'ClusterIP' and service['spec']['selector'] == {'app': name}, where
+        assert service['spec']['ports'][0]['port'] == ports[name], where
+        for probe in ['readinessProbe', 'livenessProbe', 'startupProbe']:
+            assert '/actuator/health/' not in json.dumps(container.get(probe, {})), \
+                f'{where}: BE security only permits /actuator/health'
+
+    api = deployments['api']
+    assert api['spec']['strategy'] == {'type': 'Recreate'}, 'Flyway at startup: never run two BE versions together'
+    api_container = api['spec']['template']['spec']['containers'][0]
+    api_env = {e['name']: e.get('value') for e in api_container['env']}
+    assert api_env['SPRING_PROFILES_ACTIVE'] not in ('local', '', None)
+    assert api_env['SPRING_DATASOURCE_USERNAME'] == 'nerdnam_app' and api_env['SPRING_FLYWAY_USER'] == 'nerdnam_migrator'
+    assert api_env['SPRING_DATASOURCE_URL'] == 'jdbc:postgresql://postgres.data.svc.cluster.local:5432/nerdnam'
+    assert api_env['REDIS_HOST'] == 'redis.data.svc.cluster.local' and api_env['SPRING_DATA_REDIS_USERNAME'] == 'api'
+    assert api_env['NERDNAM_AI_STUB'] == 'false' and api_env['NERDNAM_AUTH_MODE'] == 'session'
+    assert api_env['NERDNAM_AI_BASE_URL'] == f'http://ai.nerdnam.svc.cluster.local:{ports["ai"]}'
+    assert api_container['envFrom'] == [{'secretRef': {'name': 'backend-secrets'}}]
+    passwords = set(BACKEND_FROM_DATA)
+    assert not passwords & set(api_env), 'passwords come from backend-secrets only'
+    web_env = {e['name']: e.get('value') for e in deployments['web']['spec']['template']['spec']['containers'][0]['env']}
+    assert web_env['API_ORIGIN'] == f'http://api.nerdnam.svc.cluster.local:{ports["api"]}'
+    ai_env = {e['name']: e.get('value') for e in deployments['ai']['spec']['template']['spec']['containers'][0]['env']}
+    assert ai_env['AI_MODE'] == 'real' and ai_env['LLM_MODEL'].startswith('global.')
+    assert all('envFrom' not in d['spec']['template']['spec']['containers'][0] for n, d in deployments.items() if n != 'api')
+
+    # 공개 경로: 로그인·API 만 BE, 나머지는 FE. TLS 는 같은 host 의 인증서.
+    (ingress,) = by_kind['Ingress']
+    (cert,) = by_kind['Certificate']
+    rule = ingress['spec']['rules'][0]
+    assert ingress['spec']['tls'][0]['secretName'] == cert['spec']['secretName']
+    assert ingress['spec']['tls'][0]['hosts'] == cert['spec']['dnsNames'] == [rule['host']]
+    routes = {p['path']: (p['backend']['service']['name'], p['backend']['service']['port']['number']) for p in rule['http']['paths']}
+    assert routes == {'/api': ('api', ports['api']), '/oauth2': ('api', ports['api']),
+                      '/login/oauth2': ('api', ports['api']), '/': ('web', ports['web'])}
+    assert all(p['pathType'] == 'Prefix' for p in rule['http']['paths'])
+
+    # 통신 정책: 누가 누구에게 닿는지를 Pod 쌍으로 계산해 기대값과 비교한다.
+    policies = {x['metadata']['name']: x['spec'] for x in by_kind['NetworkPolicy']}
+    ingress_from = {}
+    for spec in policies.values():
+        if 'Ingress' not in spec['policyTypes']:
+            continue
+        target = spec['podSelector']['matchLabels']['app']
+        for rule_ in spec['ingress']:
+            for peer in rule_['from']:
+                source = peer.get('podSelector', {}).get('matchLabels', {}).get('app') or \
+                    'ns:' + peer['namespaceSelector']['matchLabels']['kubernetes.io/metadata.name']
+                for port in rule_['ports']:
+                    ingress_from.setdefault(target, set()).add((source, port['port']))
+    assert ingress_from == {'web': {('ns:traefik', ports['web'])},
+                            'api': {('ns:traefik', ports['api']), ('web', ports['api'])},
+                            'ai': {('api', ports['ai'])}}
+    egress_to = {}
+    for spec in policies.values():
+        if 'Egress' not in spec['policyTypes']:
+            continue
+        source = spec['podSelector']['matchLabels']['app']
+        for rule_ in spec['egress']:
+            for peer in rule_['to']:
+                if 'ipBlock' in peer:
+                    target = peer['ipBlock']['cidr']
+                    if target == '0.0.0.0/0':
+                        assert {'10.0.0.0/8', '169.254.0.0/16'} <= set(peer['ipBlock']['except']), 'internet rule must exclude private ranges'
+                else:
+                    target = peer['podSelector']['matchLabels']['app']
+                for port in rule_['ports']:
+                    egress_to.setdefault(source, set()).add((target, port['port']))
+    assert egress_to == {'web': {('api', ports['api'])},
+                         'api': {('ai', ports['ai']), ('0.0.0.0/0', 443)},
+                         'ai': {('169.254.170.23/32', 80), ('0.0.0.0/0', 443)}}
+    data_egress = next(x for x in local['data'] if x['kind'] == 'NetworkPolicy' and x['metadata']['name'] == 'allow-api-to-data')
+    assert data_egress['spec']['podSelector']['matchLabels'] == {'app': 'api'}, 'data chart must select the same BE pods'
+
+    quota = by_kind['ResourceQuota'][0]['spec']['hard']
+    assert quota['services.loadbalancers'] == '0' and quota['services.nodeports'] == '0'
+    surge = {'web': 2, 'api': 1, 'ai': 2}   # RollingUpdate maxSurge 1 이면 교체 중 2개
+    sample = next(x for x in local['sample'] if x['kind'] == 'Deployment')['spec']['template']['spec']['containers'][0]['resources']
+    cpu = sum(quantity(d['spec']['template']['spec']['containers'][0]['resources']['requests']['cpu']) * surge[n] for n, d in deployments.items())
+    memory = sum(quantity(d['spec']['template']['spec']['containers'][0]['resources']['limits']['memory']) * surge[n] for n, d in deployments.items())
+    assert cpu + quantity(sample['requests']['cpu']) <= quantity(quota['requests.cpu']), 'quota blocks rolling update'
+    assert memory + quantity(sample['limits']['memory']) <= quantity(quota['limits.memory']), 'quota blocks rolling update'
+    return len(deployments)
 
 
 def quantity(value):

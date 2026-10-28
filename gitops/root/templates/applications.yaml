@@ -23,7 +23,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 {{- end }}
-{{- range $name := list "foundation" "secrets" "data" "sample" }}
+{{- range $name := list "foundation" "secrets" "data" "apps" "sample" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -37,6 +37,9 @@ spec:
     targetRevision: {{ required "gitRevision is required" $.Values.gitRevision | quote }}
     path: gitops/{{ $name }}
     helm:
+      {{- if eq $name "apps" }}
+      valueFiles: [images.yaml]
+      {{- end }}
       valuesObject:
         environment: {{ $.Values.environment | toYaml | nindent 10 }}
   destination:

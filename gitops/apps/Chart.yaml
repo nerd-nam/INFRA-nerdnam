@@ -1,0 +1,5 @@
+apiVersion: v2
+name: nerdnam-apps
+description: FE(web)·BE(api)·AI(ai) Deployment, Service, 공개 Ingress, 통신 정책
+version: 0.1.0
+type: application

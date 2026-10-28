@@ -14,3 +14,8 @@ environment:
     backend: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/backend-ABC123
     data: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/data-ABC123
     ai: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-ABC123
+  appHostname: app.example.invalid
+images:
+  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:1111111111111111111111111111111111111111111111111111111111111111
+  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:2222222222222222222222222222222222222222222222222222222222222222
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:3333333333333333333333333333333333333333333333333333333333333333

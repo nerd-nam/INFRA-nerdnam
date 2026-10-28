@@ -1,0 +1,109 @@
+{{- /*
+  nerdnam namespace 는 foundation 의 default-deny(Ingress·Egress) + DNS 허용 위에 아래 경로만 연다.
+    Traefik → web:3000, api:8080 (공개 진입)
+    web     → api:8080          (SSR·rewrites)
+    api     → ai:8000           (AI 호출)     api → postgres/redis 는 gitops/data 의 allow-api-to-data
+    api     → 외부 443          (Google·Kakao OAuth)
+    ai      → 외부 443          (Bedrock), Pod Identity Agent:80
+  AI·web 은 DB·Redis 에 닿지 않는다. 7단계 Prometheus·OTLP 경로는 관측 단계에서 추가한다.
+*/}}
+{{- $v := .Values }}
+{{- define "apps.internetHttps" }}
+- to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except: {{ toYaml .Values.egress.privateRanges | nindent 10 }}
+  ports: [{protocol: TCP, port: 443}]
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-web
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: web}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: traefik}
+      ports: [{protocol: TCP, port: {{ $v.web.port }}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: traefik}
+        - podSelector:
+            matchLabels: {app: web}
+      ports: [{protocol: TCP, port: {{ $v.api.port }}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-to-ai
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: ai}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app: api}
+      ports: [{protocol: TCP, port: {{ $v.ai.port }}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-egress
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: web}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: api}
+      ports: [{protocol: TCP, port: {{ $v.api.port }}}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-egress
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app: ai}
+      ports: [{protocol: TCP, port: {{ $v.ai.port }}}]
+    {{- include "apps.internetHttps" . | nindent 4 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-egress
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: ai}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: {{ $v.egress.podIdentityAgent }}}
+      ports: [{protocol: TCP, port: 80}]
+    {{- include "apps.internetHttps" . | nindent 4 }}

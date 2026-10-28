@@ -1,0 +1,7 @@
+# 배포할 이미지. 앱 저장소 CI 가 ECR 에 push 한 뒤 이 파일의 digest 를 바꾸는 PR 을 만든다(docs/앱-배포-작업계획.md).
+# 형식: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/<web|api|ai>@sha256:<64자리>
+# 비어 있으면 렌더링이 실패한다(첫 이미지가 push 되기 전에는 nerdnam-apps 를 sync 하지 않는다).
+images:
+  web: ""
+  api: ""
+  ai: ""
