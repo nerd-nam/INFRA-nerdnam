@@ -1,0 +1,105 @@
+{
+  "checked_at": "2026-10-27",
+  "currency": "USD",
+  "source_region": "ap-northeast-2",
+  "tier": "Standard / on-demand",
+  "source_page": "https://aws.amazon.com/bedrock/pricing/",
+  "notes": [
+    "세금·캐싱·할인·재시도·네트워크 비용 제외",
+    "Haiku 5.5는 입력 100K 토큰 이하 단가",
+    "공식 요금 페이지의 data-pricing-markup 토큰을 공개 가격 JSON과 대조"
+  ],
+  "source_manifests": [
+    {
+      "serviceId": "bedrock",
+      "accessType": "publish",
+      "esIndex": "plc-bedrock-usd-20261016210806",
+      "hawkFilePublicationDate": "2026-10-16T21:08:06Z",
+      "ETLIngestionTriggerDate": "2026-10-16T21:08:06Z",
+      "currencyCode": "USD",
+      "source": "bedrock",
+      "isMapped": "true"
+    },
+    {
+      "serviceId": "bedrockfoundationmodels",
+      "accessType": "publish",
+      "esIndex": "plc-bedrockfoundationmodels-usd-20261012084008",
+      "hawkFilePublicationDate": "2026-10-12T08:40:08Z",
+      "ETLIngestionTriggerDate": "2026-10-12T08:40:08Z",
+      "currencyCode": "USD",
+      "source": "bedrockfoundationmodels",
+      "isMapped": "true"
+    }
+  ],
+  "models": [
+    {
+      "model": "Claude Haiku 5.5",
+      "route": "Global",
+      "input_usd_per_1m_tokens": 0.1,
+      "input_price_key": "ypAS0oaTBw6Y2_PIwl-J8piJw22NJFzJbGkHLoHa4p0",
+      "input_rate_code": "CXE5WCR6TNJ3WV7E.4799GE89SK.6YS6EN2CT7",
+      "output_usd_per_1m_tokens": 0.5,
+      "output_price_key": "sK7dO7DzZWrueMcka4cotzToAt2QzDErJzlB_CuU8R8",
+      "output_rate_code": "HU2URPXYWYXVXJW8.4799GE89SK.6YS6EN2CT7"
+    },
+    {
+      "model": "Claude Sonnet 5.5",
+      "route": "Global",
+      "input_usd_per_1m_tokens": 2.0,
+      "input_price_key": "TeYB86CsqRJWKExJDyvIMdJ1P6bBCBF3J7MmOFzToUI",
+      "input_rate_code": "U3ATMQR8H3N52DSE.4799GE89SK.6YS6EN2CT7",
+      "output_usd_per_1m_tokens": 10.0,
+      "output_price_key": "3B7xvJhLXRpIxHa-JvrO0uOHUuwjiU0Z4cHYbmzICz8",
+      "output_rate_code": "D2B8KKCPWGUZSYXD.4799GE89SK.6YS6EN2CT7"
+    },
+    {
+      "model": "Amazon Nova 2 Lite",
+      "route": "Global",
+      "input_usd_per_1m_tokens": 0.36,
+      "input_price_key": "NB7aHsk8SCFhgsXJJRvBTxu4xhoyw2_4c97GBxqcHrQ",
+      "input_rate_code": "VDQNB9NTRU3DSRJ4.JRTCKXETXF.6YS6EN2CT7",
+      "output_usd_per_1m_tokens": 2.96,
+      "output_price_key": "pChkwb9lpAj18OhnQBD7c2I4YO2hSqm451bQtxrTfvI",
+      "output_rate_code": "TBGXVM8E2RQAA3W3.JRTCKXETXF.6YS6EN2CT7"
+    },
+    {
+      "model": "Titan Text Embeddings V2",
+      "route": "In-Region",
+      "input_usd_per_1m_tokens": 0.024592,
+      "input_price_key": "eh1KPfqS8SzOcpzykb_8UNOOCmIOCxQthHTL2CoKg_U",
+      "input_rate_code": "X2GE9X2QXW5HY9KA.JRTCKXETXF.6YS6EN2CT7"
+    },
+    {
+      "model": "Cohere Embed v4",
+      "route": "Global from Seoul; Tokyo In-Region also available",
+      "input_usd_per_1m_tokens": 0.12,
+      "input_price_key": "GGtxmGQbwmSUPWIWF2uxPJWwy0QxFQV1gUlXlfGIfGY",
+      "input_rate_code": "YWVRK4WEY53597R3.4799GE89SK.6YS6EN2CT7"
+    },
+    {
+      "model": "Amazon Nova Micro",
+      "route": "Geo from Seoul",
+      "input_usd_per_1m_tokens": 0.041,
+      "output_usd_per_1m_tokens": 0.164,
+      "input_price_key": "BV6s9turwwiLxkSLLRVWD1edY41U1702rBTG0DorbCc",
+      "output_price_key": "PHF5wVRqgGpg_KsGiK2hLZWH8U98CjxcClifD6NE5Ng",
+      "input_rate_code": "FNTRRRNCJBZXKQ4V.JRTCKXETXF.6YS6EN2CT7",
+      "output_rate_code": "7XF47ZK3PF66E6B6.JRTCKXETXF.6YS6EN2CT7"
+    },
+    {
+      "model": "Amazon Nova Lite",
+      "route": "Geo from Seoul",
+      "input_usd_per_1m_tokens": 0.071,
+      "output_usd_per_1m_tokens": 0.284,
+      "input_price_key": "jqpXyMWar6dZCgJ4nRTHic6D040daCa-N81Kh52Jlac",
+      "output_price_key": "urNDBArH5pV5njuTwm41YJmDyeIrg_gD9kCMIHcQdLI",
+      "input_rate_code": "YA6NN73PF2SE6VBA.JRTCKXETXF.6YS6EN2CT7",
+      "output_rate_code": "C4KXD3RJMJWVX23E.JRTCKXETXF.6YS6EN2CT7"
+    }
+  ],
+  "source_json_urls": [
+    "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrock/USD/current/bedrock.json",
+    "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrockfoundationmodels/USD/current/bedrockfoundationmodels.json",
+    "https://b0.p.awsstatic.com/pricing/2.0/meteredUnitMaps/bedrockfoundationmodels/USD/current/cHVibGljLzljYzM1NWVlLTRjNjYtNDk0OC04MTg0LWVjMDFkYjBlNGNmMy8yNg.json"
+  ]
+}
