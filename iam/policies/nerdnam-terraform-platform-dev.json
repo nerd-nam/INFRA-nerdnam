@@ -1,0 +1,72 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageControllerRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-lbc",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cert-manager",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-external-secrets"
+      ]
+    },
+    {
+      "Sid": "PassControllerRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-lbc",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-cert-manager",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-external-secrets"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "pods.eks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ManageRuntimeSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:RestoreSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:UntagResource",
+        "secretsmanager:GetResourcePolicy",
+        "secretsmanager:ListSecretVersionIds"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/backend-??????",
+        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/data-??????",
+        "arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-??????"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    }
+  ]
+}

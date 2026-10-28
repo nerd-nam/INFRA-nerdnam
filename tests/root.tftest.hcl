@@ -10,6 +10,7 @@ mock_provider "aws" {
 run "network_and_eks_are_always_planned" {
   command = plan
   variables {
+    route53_zone_id         = "ZTESTONLY"
     eks_admin_principal_arn = "arn:aws:iam::082139775699:user/nerdnam-infra"
     eks_public_access_cidrs = ["203.0.113.1/32"]
     # 테스트 전용 버전. 실제 AWS 배포용이 아니다.

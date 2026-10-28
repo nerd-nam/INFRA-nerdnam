@@ -1,0 +1,6 @@
+# 실제 환경 입력값은 ignored *.tfvars에 저장한다.
+git_revision = "main"
+sample_hostname = "sample.example.com"
+acme_email = "ops@example.com"
+# 발급 시험은 staging endpoint 사용 가능 (브라우저가 신뢰하지 않는 인증서).
+# acme_server = "https://acme-staging-v02.api.letsencrypt.org/directory"

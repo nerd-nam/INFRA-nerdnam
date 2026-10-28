@@ -37,3 +37,8 @@ variable "eks_addon_versions" {
   type        = map(string)
   default     = {}
 }
+
+variable "route53_zone_id" {
+  description = "cert-manager DNS01에 사용할 기존 Route53 hosted zone ID."
+  type        = string
+}

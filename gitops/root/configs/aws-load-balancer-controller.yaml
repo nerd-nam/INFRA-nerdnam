@@ -1,0 +1,21 @@
+clusterName: {{ required "environment.clusterName is required" .Values.environment.clusterName | quote }}
+region: {{ required "environment.region is required" .Values.environment.region | quote }}
+vpcId: {{ required "environment.vpcId is required" .Values.environment.vpcId | quote }}
+replicaCount: 1
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+nodeSelector:
+  workload: platform
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: platform
+    effect: NoSchedule
+enableServiceMutatorWebhook: false
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi

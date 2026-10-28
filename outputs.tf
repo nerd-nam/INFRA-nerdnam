@@ -15,3 +15,8 @@ output "eks" {
   description = "클러스터, 노드 그룹, ECR 및 add-on 정보."
   value       = module.eks
 }
+
+output "platform" {
+  description = "GitOps controllers의 역할, Secret ARN, DNS zone. Secret 값은 포함하지 않는다."
+  value       = module.platform
+}

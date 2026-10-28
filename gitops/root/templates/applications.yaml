@@ -1,0 +1,48 @@
+{{- range $name, $controller := .Values.controllers }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  namespace: argocd
+spec:
+  project: nerdnam-platform
+  source:
+    repoURL: {{ $controller.repoURL | quote }}
+    chart: {{ $controller.chart | quote }}
+    targetRevision: {{ $controller.version | quote }}
+    helm:
+      releaseName: {{ $name }}
+      valuesObject:
+        {{- tpl ($.Files.Get (printf "configs/%s.yaml" $name)) $ | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $controller.namespace }}
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}
+{{- range $name := list "foundation" "secrets" "sample" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nerdnam-{{ $name }}
+  namespace: argocd
+spec:
+  project: nerdnam-platform
+  source:
+    repoURL: {{ $.Values.gitRepoUrl | quote }}
+    targetRevision: {{ required "gitRevision is required" $.Values.gitRevision | quote }}
+    path: gitops/{{ $name }}
+    helm:
+      valuesObject:
+        environment: {{ $.Values.environment | toYaml | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nerdnam
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+{{- end }}

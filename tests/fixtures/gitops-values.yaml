@@ -1,0 +1,16 @@
+# 렌더링 테스트 전용. 배포용 값이 아니다.
+gitRevision: test-fixture-only
+environment:
+  clusterName: nerdnam-dev
+  region: ap-northeast-2
+  vpcId: vpc-0123456789abcdef0
+  publicSubnetIds:
+  - subnet-0123456789abcdef0
+  hostedZoneId: ZTESTONLY
+  hostname: sample.example.invalid
+  acmeEmail: test@example.invalid
+  acmeServer: https://acme-staging-v02.api.letsencrypt.org/directory
+  secretArns:
+    backend: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/backend-ABC123
+    data: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/data-ABC123
+    ai: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-ABC123

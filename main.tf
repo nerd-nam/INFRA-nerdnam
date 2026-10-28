@@ -25,3 +25,10 @@ module "eks" {
   instance_types      = var.eks_instance_types
   addon_versions      = var.eks_addon_versions
 }
+
+module "platform" {
+  source          = "./modules/platform"
+  cluster_name    = module.eks.cluster_name
+  cluster_arn     = module.eks.cluster_arn
+  route53_zone_id = var.route53_zone_id
+}

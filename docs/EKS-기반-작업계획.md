@@ -27,7 +27,7 @@
 
 m7i.large/xlarge가 서울 a/c에서 제공됨은 조회했다. 예약 용량이나 확정 가격을 확인한 것은 아니다. HPA/Karpenter/Cluster Autoscaler는 추가하지 않는다. SSM 접속 정책과 에이전트 구동은 아직 설정하지 않았으며 SSH도 열지 않는다.
 
-기본 VPC 보안 그룹은 비어 있고 EKS는 자신의 cluster security group을 자동 생성해 MNG에 사용한다. NLB 인바운드 규칙은 4단계에서 작성한다. VPC CNI의 NetworkPolicy 활성화와 허용 정책은 4단계에서 함께 구성한다. gp3 StorageClass·샘플 PVC도 후속 GitOps 코드로 관리하고 실제 저장소 시험은 배포 후 한다.
+기본 VPC 보안 그룹은 비어 있고 EKS는 자신의 cluster security group을 자동 생성해 MNG에 사용한다. 4단계에서 LBC가 NLB 관련 SG를 관리하는 구성과 VPC CNI NetworkPolicy 활성화, 기본 허용/차단 정책, gp3 StorageClass 코드를 추가했다. 샘플 PVC와 실제 저장소 시험은 후속이다. [GitOps 작업계획](GitOps-기반-작업계획.md)을 참고한다.
 
 ## 로컬 코드 검증
 

@@ -7,11 +7,13 @@
 | `NerdnamTerraformStateDev` | [state 정책](policies/nerdnam-terraform-state-dev.json) | 기존 bucket 목록 조회, dev state 읽기/쓰기, 해당 잠금 객체 읽기/쓰기/삭제 |
 | `NerdnamTerraformNetworkDev` | [network 정책](policies/nerdnam-terraform-network-dev.json) | 서울 EC2 조회와 현재 VPC 모듈에 필요한 네트워크 생성/변경/삭제 |
 | `NerdnamTerraformEksDev` | [EKS 정책 초안](policies/nerdnam-terraform-eks-dev.json) | 프로젝트 EKS·역할·ECR 관리, 서울 Launch Template, 필요한 서비스 연결 역할 |
+| `NerdnamTerraformPlatformDev` | [platform 정책 초안](policies/nerdnam-terraform-platform-dev.json) | 공통 controller 역할과 런타임 Secret 생성·관리 |
+| `NerdnamTerraformBootstrapStateDev` | [bootstrap state 정책](policies/nerdnam-terraform-bootstrap-state-dev.json) | 별도 dev/bootstrap.tfstate와 잠금 객체 |
 
 ## 적용
 
 1. IAM 관리 권한이 있는 사용자가 IAM → 정책 → 정책 생성 → JSON에서 파일 내용을 붙여 넣고 위 이름으로 저장한다.
-2. 실제 실행 권한을 준비하는 시점에 IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 필요한 정책을 연결한다. EKS에는 state/network/EKS 세 정책을 함께 사용한다.
+2. 실제 실행 권한을 준비하는 시점에 IAM → 사용자 그룹 → `nerdnam-infra` → 권한 → 정책 연결에서 필요한 정책을 연결한다. AWS 루트는 state/network/EKS/platform 정책을 사용한다. bootstrap에는 별도 state 정책과 기존 AWS state 읽기, EKS 관리자 인증이 필요하다.
 3. Terraform 실행 사용자를 그룹에 추가한다. 로컬 프로필은 새 사용자를 선택한다.
 4. STS 신원, state HeadObject, Terraform init/plan 순서로 확인한다. 액세스 키 원문은 저장소나 채팅에 넣지 않는다.
 
@@ -31,6 +33,10 @@ aws s3api head-object --bucket nerdnam-terraform-082139775699-ap-northeast-2-an 
 - 새 사용자로 VPC 생성 후 사용자의 요청에 따라 삭제했다. 삭제 도중 Elastic IP 연결 해제 권한 부족을 확인해 정책 파일에 `ec2:DisassociateAddress`를 추가했다. 이 수정은 AWS에 자동 반영되지 않는다. 실제 사용자에게 연결된 모든 정책은 확인하지 않았고, 수정된 정책만으로 모든 변경·삭제 경로가 동작하는지도 검증되지 않았다.
 
 ## 후속 단계에서 추가할 권한
+
+platform 실행자 정책의 inline role policy·trust 변경은 지정한 세 controller 역할에 한정하지만, 그 역할에 부여할 수 있는 권한 내용 자체를 제한하는 boundary는 아니다. 신뢰하는 인프라 운영자용 초안이며 최소 권한을 보장한다고 해석하지 않는다. 또한 코드가 Secret 메타데이터만 선언하더라도 IAM의 CreateSecret/UpdateSecret API 권한은 Secret 값을 쓰는 데도 사용될 수 있다. 실제 secret 읽기 GetSecretValue는 이 실행자 정책에 넣지 않았다.
+
+Bootstrap state 정책은 원격 AWS state와 다른 key를 사용한다. Kubernetes 배포 권한은 S3 정책으로 생기지 않으며 기존 EKS access entry가 필요하다. 실제 계정에 위 정책을 생성·연결하거나 검증하지 않았다.
 
 EKS 실행자 정책은 계정 `082139775699`의 `nerdnam-dev` 클러스터와 그 하위 리소스, web/api/ai ECR, cluster/node/cni/ebs-csi 네 IAM 역할로 범위를 제한했다. 역할에 연결할 수 있는 정책은 코드에 사용하는 AWS 관리형 정책 5개로 제한하고 PassRole 대상 서비스도 제한했다. 역할 trust 수정과 클러스터 관리자 access entry 관리는 강한 권한이므로 신뢰하는 인프라 운영자에게 부여한다. 최소 권한이 완성됐다고 보지는 않는다.
 

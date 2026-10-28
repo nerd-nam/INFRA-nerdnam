@@ -1,0 +1,41 @@
+{
+  "argo-cd": {
+    "repo": "https://argoproj.github.io/argo-helm",
+    "version": "10.11.6",
+    "appVersion": "v3.5.6",
+    "url": "https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.11.6/argo-cd-10.11.6.tgz",
+    "digest": "d8f096d87513b41ff754053a7f9604c943bf29c15436a79226fd51595ea67d05"
+  },
+  "aws-load-balancer-controller": {
+    "repo": "https://aws.github.io/eks-charts",
+    "version": "3.6.2",
+    "appVersion": "v3.6.2",
+    "url": "https://aws.github.io/eks-charts/aws-load-balancer-controller-3.6.2.tgz",
+    "digest": "9255bf39873b6cb31106dbe61dc87c3617bff4197783b5b94381811a13f99c3c",
+    "iamPolicy": {
+      "url": "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v3.6.2/docs/install/iam_policy.json",
+      "digest": "16f232c9d9f79366fe949c4550ad517a202380058a9e48d45a4e215044a20a6a"
+    }
+  },
+  "traefik": {
+    "repo": "https://traefik.github.io/charts",
+    "version": "42.1.3",
+    "appVersion": "v3.7.16",
+    "url": "https://traefik.github.io/charts/traefik/traefik-42.1.3.tgz",
+    "digest": "10ec2b032fd7ec9fa04a8816872e20ba0fafc47231f6394b5cb5d522f3b0ef50"
+  },
+  "cert-manager": {
+    "repo": "https://charts.jetstack.io",
+    "version": "v1.21.3",
+    "appVersion": "v1.21.3",
+    "url": "charts/cert-manager-v1.21.3.tgz",
+    "digest": "9ec67938b2981d8b333af61b3fcf53e26b4f6f5deb7ccda3de4ea116bb373a17"
+  },
+  "external-secrets": {
+    "repo": "https://charts.external-secrets.io",
+    "version": "2.14.0",
+    "appVersion": "v2.14.0",
+    "url": "https://github.com/external-secrets/external-secrets/releases/download/helm-chart-2.14.0/external-secrets-2.14.0.tgz",
+    "digest": "0a6d9e91b1ff50adfdbf24b50b582babfa7c5b7df42b21974ca4b3fb88ee5e34"
+  }
+}

@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: nerdnam-platform
+  namespace: argocd
+spec:
+  description: Trusted infrastructure repository and pinned controller charts
+  sourceRepos:
+    - {{ .Values.gitRepoUrl | quote }}
+    - https://aws.github.io/eks-charts
+    - https://traefik.github.io/charts
+    - https://charts.jetstack.io
+    - https://charts.external-secrets.io
+  destinations:
+    {{- range list "argocd" "kube-system" "traefik" "cert-manager" "external-secrets" "nerdnam" "data" }}
+    - namespace: {{ . }}
+      server: https://kubernetes.default.svc
+    {{- end }}
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nerdnam-root
+  namespace: argocd
+spec:
+  project: nerdnam-platform
+  source:
+    repoURL: {{ .Values.gitRepoUrl | quote }}
+    targetRevision: {{ required "gitRevision is required" .Values.gitRevision | quote }}
+    path: gitops/root
+    helm:
+      valuesObject:
+        gitRepoUrl: {{ .Values.gitRepoUrl | quote }}
+        gitRevision: {{ .Values.gitRevision | quote }}
+        environment: {{ required "environment is required" .Values.environment | toYaml | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

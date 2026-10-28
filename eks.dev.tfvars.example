@@ -1,5 +1,6 @@
 # 실제 파일은 eks.dev.tfvars로 만들고 실제 관리자 ARN과 고정 공인 IP를 넣는다.
 eks_admin_principal_arn = "arn:aws:iam::082139775699:user/nerdnam-infra"
 eks_public_access_cidrs = ["203.0.113.1/32"]
+route53_zone_id = "ZREPLACEWITHREALZONE"
 # AWS에서 호환 버전을 조회한 뒤 add-on 5개의 버전을 고정한다.
 # eks_addon_versions = { vpc-cni = "...", kube-proxy = "...", coredns = "...", eks-pod-identity-agent = "...", aws-ebs-csi-driver = "..." }

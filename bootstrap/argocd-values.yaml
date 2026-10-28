@@ -1,0 +1,31 @@
+global:
+  nodeSelector:
+    workload: platform
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: platform
+      effect: NoSchedule
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+repoServer:
+  replicas: 1
+controller:
+  replicas: 1
+redis:
+  enabled: true
+configs:
+  cm:
+    exec.enabled: false
+  params:
+    server.insecure: false

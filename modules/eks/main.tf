@@ -154,6 +154,7 @@ resource "aws_eks_addon" "bootstrap" {
   addon_version               = local.addon_versions[each.value]
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+  configuration_values        = each.key == "vpc-cni" ? jsonencode({ enableNetworkPolicy = "true" }) : null
   dynamic "pod_identity_association" {
     for_each = each.key == "vpc-cni" ? [aws_iam_role.cni.arn] : []
     content {
