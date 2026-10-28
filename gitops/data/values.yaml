@@ -1,0 +1,62 @@
+environment: {}
+
+# 앞단 ExternalSecret(gitops/secrets)이 만드는 Secret. 값은 Secrets Manager nerdnam/dev/data 의 JSON 키다.
+secretName: data-secrets
+
+# data namespace 로 들어오는 접속을 허용할 BE Pod 라벨 (nerdnam namespace). 6단계 BE Deployment 가 따라야 한다.
+apiPodLabels:
+  app: api
+
+placement:
+  nodeSelector:
+    workload: data
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: data
+      effect: NoSchedule
+
+postgres:
+  # pgvector 0.8.7 / PostgreSQL 17.11 (Debian bookworm). multi-arch index digest.
+  image: pgvector/pgvector:0.8.7-pg17-bookworm@sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d
+  database: nerdnam
+  # 슈퍼유저는 초기화·운영 작업에만 쓴다. BE 는 아래 두 역할만 쓴다.
+  superuser: postgres
+  migratorUser: nerdnam_migrator   # DB·app/rag 스키마 소유자. BE Flyway 전용
+  appUser: nerdnam_app             # BE 런타임. 테이블 DML 만
+  storage: 30Gi
+  resources:
+    requests: {cpu: 750m, memory: 2Gi}
+    limits: {memory: 3Gi}
+  shmSize: 256Mi
+  # 메모리 limit 3Gi(공유 메모리 포함)에 맞춘 시작값. 실측 후 조정한다.
+  parameters:
+    max_connections: "40"
+    shared_buffers: 512MB
+    effective_cache_size: 1536MB
+    work_mem: 8MB
+    maintenance_work_mem: 256MB
+    password_encryption: scram-sha-256
+    log_min_duration_statement: "1000"
+  terminationGracePeriodSeconds: 120
+
+redis:
+  # Redis 7.4.12 (Alpine 3.21). multi-arch index digest. 7.4 는 RSALv2/SSPLv1 라이선스다.
+  image: redis:7.4.12-alpine@sha256:338fbfc036dc5517ac0b04d6de21521085935336e565f223406180e9d84166e2
+  apiUser: api
+  storage: 5Gi
+  maxmemory: 256mb
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 768Mi}
+  terminationGracePeriodSeconds: 60
+
+# data namespace 전체 상한. 7단계 exporter 가 들어올 여유를 둔다.
+quota:
+  requests.cpu: "1500m"
+  requests.memory: 4Gi
+  limits.memory: 5Gi
+  persistentvolumeclaims: "4"
+  requests.storage: 60Gi
+  services.loadbalancers: "0"
+  services.nodeports: "0"

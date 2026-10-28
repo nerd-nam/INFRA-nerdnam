@@ -1,0 +1,122 @@
+{{- $redis := .Values.redis }}
+{{- $conf := tpl (.Files.Get "files/redis.conf") . }}
+{{- $start := .Files.Get "files/redis-start.sh" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: data
+data:
+  redis.conf: |-
+    {{- $conf | nindent 4 }}
+  start.sh: |-
+    {{- $start | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: data
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {app: redis}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: data
+spec:
+  type: ClusterIP
+  selector: {app: redis}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: data
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  serviceName: redis-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy: {type: RollingUpdate}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels: {app: redis}
+  template:
+    metadata:
+      labels: {app: redis}
+      annotations:
+        checksum/config: {{ print $conf $start | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ $redis.terminationGracePeriodSeconds }}
+      nodeSelector: {{ toYaml .Values.placement.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.placement.tolerations | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # 이미지의 redis 사용자 (uid 999, gid 1000)
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: redis
+          image: {{ $redis.image | quote }}
+          command: [sh, /etc/redis/start.sh]
+          ports: [{name: redis, containerPort: 6379}]
+          env:
+            - {name: REDIS_API_USER, value: {{ $redis.apiUser | quote }}}
+            - name: REDIS_API_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-api-password}}
+            # redis-cli 가 읽는 비밀번호. probe 명령줄에 비밀번호를 쓰지 않는다.
+            - name: REDISCLI_AUTH
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-api-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{ toYaml $redis.resources | nindent 12 }}
+          # AOF 를 읽는 동안에는 PING 이 LOADING 오류를 돌려줘 Ready 가 되지 않는다.
+          startupProbe:
+            exec: {command: [sh, -c, '[ "$(redis-cli --user "$REDIS_API_USER" ping)" = PONG ]']}
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec: {command: [sh, -c, '[ "$(redis-cli --user "$REDIS_API_USER" ping)" = PONG ]']}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: {command: [sh, -c, 'redis-cli --user "$REDIS_API_USER" ping | grep -qE "^(PONG|LOADING)"']}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: config, mountPath: /etc/redis, readOnly: true}
+            - {name: run, mountPath: /run/redis}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: redis-config, defaultMode: 0444}
+        - name: run
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: gp3-retain
+        resources:
+          requests:
+            storage: {{ $redis.storage }}

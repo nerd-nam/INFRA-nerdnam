@@ -23,7 +23,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
 {{- end }}
-{{- range $name := list "foundation" "secrets" "sample" }}
+{{- range $name := list "foundation" "secrets" "data" "sample" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

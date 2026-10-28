@@ -16,6 +16,12 @@ import jsonschema
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'sample']
+# Secrets Manager nerdnam/dev/data JSON 키 계약 (docs/데이터-계층-작업계획.md)
+DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password'}
+BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
+                     'SPRING_FLYWAY_PASSWORD': 'postgres-migrator-password',
+                     'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password'}
 
 
 def main():
@@ -52,7 +58,7 @@ def main():
         assert hashlib.sha256(archive.read_bytes()).hexdigest() == item['digest'], f'{name}: checksum mismatch'
 
     local = {}
-    for name in ['seed', 'root', 'foundation', 'secrets', 'sample']:
+    for name in LOCAL_CHARTS:
         chart = ROOT / 'gitops' / name
         run([args.helm, 'lint', str(chart), '--strict', '--kube-version', '1.35.0', '-f', str(fixture)])
         local[name] = render('nerdnam-' + name, chart, 'argocd' if name in ['seed', 'root'] else 'nerdnam', fixture)
@@ -130,11 +136,134 @@ def main():
     assert all(x['spec']['target']['deletionPolicy'] == 'Retain' for x in local['secrets'])
 
     # Missing environment values must fail; example fixtures must not become defaults.
+    data_count = check_data_layer(local)
+
     rejected = subprocess.run([args.helm, 'template', 'missing-values', str(ROOT / 'gitops/root')],
                               capture_output=True, text=True)
     assert rejected.returncode != 0
-    print(f'PASS: 5 local charts, 5 pinned upstream charts, {custom_count} custom resources, {scheduled} scheduling checks')
+    print(f'PASS: {len(LOCAL_CHARTS)} local charts, {len(lock)} pinned upstream charts, '
+          f'{custom_count} custom resources, {scheduled} scheduling checks')
     print('PASS: NLB/TLS, secret boundaries, storage retention and missing-input checks')
+    print(f'PASS: data layer ({data_count} StatefulSets): placement, PVC retention, pinned images, '
+          'pod security, probes, secret keys, quota and BE<->data network policies')
+
+
+
+def quantity(value):
+    """Kubernetes CPU/메모리 수량을 숫자(코어 또는 바이트)로 바꾼다."""
+    value = str(value)
+    units = {'Ki': 2**10, 'Mi': 2**20, 'Gi': 2**30, 'Ti': 2**40, 'm': 1e-3}
+    for unit, factor in units.items():
+        if value.endswith(unit):
+            return float(value[:-len(unit)]) * factor
+    return float(value)
+
+
+def check_data_layer(local):
+    docs = local['data']
+    by_kind = {}
+    for doc in docs:
+        by_kind.setdefault(doc['kind'], []).append(doc)
+    root_apps = {x['metadata']['name']: x for x in local['root'] if x['kind'] == 'Application'}
+    assert root_apps['nerdnam-data']['spec']['source']['path'] == 'gitops/data'
+    assert 'automated' not in root_apps['nerdnam-data']['spec'].get('syncPolicy', {})
+
+    services = {x['metadata']['name']: x for x in by_kind['Service']}
+    assert all(x['metadata']['namespace'] == 'data' for x in services.values())
+    assert all(x['spec'].get('type', 'ClusterIP') == 'ClusterIP' for x in services.values()), 'data must stay internal'
+
+    sets = {x['metadata']['name']: x for x in by_kind['StatefulSet']}
+    assert set(sets) == {'postgres', 'redis'}
+    ports = {'postgres': 5432, 'redis': 6379}
+    requests = {'cpu': 0.0, 'memory': 0.0}
+    limits = 0.0
+    storage = 0.0
+    used_keys = set()
+    for name, sts in sets.items():
+        spec = sts['spec']
+        pod = spec['template']['spec']
+        where = f'data/{name}'
+        assert sts['metadata']['namespace'] == 'data'
+        assert spec['replicas'] == 1, where
+        assert 'Delete=false' in sts['metadata']['annotations']['argocd.argoproj.io/sync-options'], where
+        assert spec['persistentVolumeClaimRetentionPolicy'] == {'whenDeleted': 'Retain', 'whenScaled': 'Retain'}, where
+        headless = services[spec['serviceName']]
+        assert headless['spec']['clusterIP'] == 'None', where
+        client = services[name]
+        assert client['spec']['selector'] == spec['selector']['matchLabels'] == {'app': name}, where
+        assert client['spec']['ports'][0]['port'] == ports[name], where
+        assert pod['nodeSelector'] == {'workload': 'data'}, where
+        assert any(t.get('key') == 'dedicated' and t.get('value') == 'data' and t.get('effect') == 'NoSchedule'
+                   for t in pod['tolerations']), where
+        assert pod['automountServiceAccountToken'] is False and pod['enableServiceLinks'] is False, where
+        assert pod['securityContext']['runAsNonRoot'] is True and pod['securityContext']['fsGroup'], where
+        claims = spec['volumeClaimTemplates']
+        assert len(claims) == 1 and claims[0]['spec']['storageClassName'] == 'gp3-retain', where
+        assert claims[0]['spec']['accessModes'] == ['ReadWriteOnce'], where
+        storage += quantity(claims[0]['spec']['resources']['requests']['storage'])
+        persistent = {v['name'] for v in pod['volumes'] if 'emptyDir' in v or 'configMap' in v}
+        assert claims[0]['metadata']['name'] not in persistent, f'{where}: data must live on the PVC'
+        (container,) = pod['containers']
+        assert '@sha256:' in container['image'], f'{where}: image must be pinned by digest'
+        security = container['securityContext']
+        assert security['readOnlyRootFilesystem'] is True and security['allowPrivilegeEscalation'] is False, where
+        assert security['capabilities']['drop'] == ['ALL'], where
+        for probe in ['startupProbe', 'readinessProbe', 'livenessProbe']:
+            assert 'exec' in container[probe], f'{where}: {probe}'
+        resources = container['resources']
+        assert 'cpu' not in resources.get('limits', {}), f'{where}: CPU limit causes throttling of the database'
+        requests['cpu'] += quantity(resources['requests']['cpu'])
+        requests['memory'] += quantity(resources['requests']['memory'])
+        limits += quantity(resources['limits']['memory'])
+        assert quantity(resources['requests']['memory']) <= quantity(resources['limits']['memory']), where
+        for env in container['env']:
+            ref = env.get('valueFrom', {}).get('secretKeyRef')
+            if ref:
+                assert ref['name'] == 'data-secrets', where
+                used_keys.add(ref['key'])
+        mounts = {m['mountPath'] for m in container['volumeMounts']}
+        assert {'/tmp'} <= mounts, where
+    assert used_keys == DATA_SECRET_KEYS, f'data secret keys drifted: {sorted(used_keys ^ DATA_SECRET_KEYS)}'
+    pg_env = {e['name']: e.get('value') for e in sets['postgres']['spec']['template']['spec']['containers'][0]['env']}
+    assert pg_env['PGDATA'].startswith('/var/lib/postgresql/data/'), 'PGDATA must be below the EBS mount root'
+    assert 'scram-sha-256' in pg_env['POSTGRES_INITDB_ARGS'] and 'POSTGRES_HOST_AUTH_METHOD' not in pg_env
+
+    quota = by_kind['ResourceQuota'][0]['spec']['hard']
+    assert quota['services.loadbalancers'] == '0' and quota['services.nodeports'] == '0'
+    assert requests['cpu'] <= quantity(quota['requests.cpu'])
+    assert requests['memory'] <= quantity(quota['requests.memory'])
+    assert limits <= quantity(quota['limits.memory'])
+    assert storage <= quantity(quota['requests.storage'])
+    assert by_kind['LimitRange'][0]['metadata']['namespace'] == 'data'
+
+    # BE 가 받는 키는 data 비밀값에서만 오고, 슈퍼유저 비밀번호는 nerdnam namespace 로 가지 않는다.
+    secrets = {x['metadata']['name']: x for x in local['secrets']}
+    backend = secrets['backend-secrets']['spec']
+    data_arn = secrets['data-secrets']['spec']['dataFrom'][0]['extract']['key']
+    mapped = {x['secretKey']: x['remoteRef']['property'] for x in backend['data']}
+    assert mapped == BACKEND_FROM_DATA
+    assert all(x['remoteRef']['key'] == data_arn for x in backend['data'])
+    assert 'postgres-superuser-password' not in mapped.values()
+
+    # 양쪽 namespace 정책: data ingress 와 nerdnam egress 가 같은 Pod/포트를 가리켜야 한다.
+    policies = {(x['metadata']['namespace'], x['metadata']['name']): x for x in by_kind['NetworkPolicy']}
+    egress = policies[('nerdnam', 'allow-api-to-data')]['spec']
+    api_labels = egress['podSelector']['matchLabels']
+    assert egress['policyTypes'] == ['Egress']
+    allowed_out = {(r['to'][0]['podSelector']['matchLabels']['app'], r['ports'][0]['port']) for r in egress['egress']}
+    assert all(r['to'][0]['namespaceSelector']['matchLabels'] == {'kubernetes.io/metadata.name': 'data'} for r in egress['egress'])
+    assert allowed_out == set(ports.items())
+    for name, port in ports.items():
+        policy = policies[('data', f'allow-api-to-{name}')]['spec']
+        assert policy['podSelector']['matchLabels'] == {'app': name}
+        assert policy['policyTypes'] == ['Ingress']
+        (rule,) = policy['ingress']
+        (peer,) = rule['from']
+        assert peer['namespaceSelector']['matchLabels'] == {'kubernetes.io/metadata.name': 'nerdnam'}
+        assert peer['podSelector']['matchLabels'] == api_labels, 'only BE pods may reach the data layer'
+        assert rule['ports'] == [{'protocol': 'TCP', 'port': port}]
+    assert not any(x['spec'].get('ingress') == [{}] or x['spec'].get('egress') == [{}] for x in by_kind['NetworkPolicy'])
+    return len(sets)
 
 
 if __name__ == '__main__':
