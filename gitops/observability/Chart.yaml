@@ -1,5 +1,5 @@
 apiVersion: v2
 name: nerdnam-observability
-description: 앱·데이터 지표 수집 대상(ServiceMonitor)과 알림 규칙(PrometheusRule)
+description: 앱·데이터 지표 수집 대상(ServiceMonitor), 알림 규칙(PrometheusRule), Grafana 대시보드
 version: 0.1.0
 type: application

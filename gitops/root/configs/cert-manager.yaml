@@ -16,12 +16,24 @@ resources:
     memory: 128Mi
   limits:
     memory: 256Mi
+# 9단계: 보조 Pod 에도 requests 를 둔다. 없으면 스케줄러가 자리를 계산하지 못하고 노드가 붐빌 때 가장 먼저 쫓겨난다.
+# 측정 전 시작값이다(배포 후 실제 사용량으로 조정).
 webhook:
   nodeSelector: *nodeSelector
   tolerations: *tolerations
+  resources:
+    requests: {cpu: 10m, memory: 64Mi}
+    limits: {memory: 128Mi}
 cainjector:
   nodeSelector: *nodeSelector
   tolerations: *tolerations
+  # 클러스터의 CRD·webhook 설정을 지켜본다. controller 와 같은 크기로 시작한다
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 256Mi}
 startupapicheck:
   nodeSelector: *nodeSelector
   tolerations: *tolerations
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 64Mi}

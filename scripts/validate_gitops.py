@@ -174,6 +174,8 @@ def main():
     # Missing environment values must fail; example fixtures must not become defaults.
     data_count = check_data_layer(local)
     app_count = check_apps(local)
+    capacity, _ = check_capacity(local, upstream)
+    dashboard_count, query_count = check_queries(local)
 
     rejected = subprocess.run([args.helm, 'template', 'missing-values', str(ROOT / 'gitops/root')],
                               capture_output=True, text=True)
@@ -189,6 +191,11 @@ def main():
           'read-only root, Grafana Tempo<->Loki links')
     print(f'PASS: apps ({app_count} Deployments): digest-pinned ECR images, placement, pod security, probes, '
           'public routes, Bedrock identity and namespace traffic policies')
+    print(f'PASS: queries ({dashboard_count} dashboards, {query_count} PromQL incl. alert rules): metric names exist '
+          '(collected fixtures + cluster metrics), job/namespace match ServiceMonitors, datasource uids')
+    print(f'PASS: capacity (estimated allocatable, requests <= {REQUEST_HEADROOM:.0%}, data node limits not overcommitted):')
+    for line in capacity:
+        print('  ' + line)
 
 
 
@@ -542,6 +549,170 @@ def check_observability(local, upstream):
     rules = next(x for x in local['observability'] if x['kind'] == 'PrometheusRule')
     assert all(r['labels']['severity'] in ('warning', 'critical') for g in rules['spec']['groups'] for r in g['rules'])
     return len(monitors)
+
+
+# 9단계 용량 검사. 노드 allocatable 은 배포 전 추정값이다(배포 후 `kubectl describe node` 로 바꿔 확인).
+#   EKS AL2023: kube-reserved 메모리 = 255Mi + 11Mi × maxPods, CPU = 6%·1%·0.5%·0.5%(코어 순), eviction 100Mi.
+#   maxPods 는 VPC CNI 기본(prefix delegation 없음): m7i.xlarge 58, m7i.large 29.
+#   OS 가 보고하는 메모리(MemTotal)는 표기 용량보다 약 4% 작게 잡는다.
+NODES = {
+    'app': {'instance': 'm7i.xlarge', 'cpu': 4, 'memory_gib': 16, 'max_pods': 58},
+    'platform': {'instance': 'm7i.xlarge', 'cpu': 4, 'memory_gib': 16, 'max_pods': 58},
+    'data': {'instance': 'm7i.large', 'cpu': 2, 'memory_gib': 8, 'max_pods': 29},
+}
+# 렌더 결과에 없는 EKS add-on Pod(requests 추정, add-on 기본값 기준). DaemonSet 은 노드마다, 나머지는 taint 가 없는 app 노드에 뜬다.
+EKS_DAEMONSETS = {'aws-node': (0.025, 0), 'kube-proxy': (0.1, 0), 'ebs-csi-node': (0.03, 120 * 2**20),
+                  'eks-pod-identity-agent': (0.025, 0)}
+EKS_APP_NODE_PODS = {'coredns x2': (0.2, 140 * 2**20), 'ebs-csi-controller x2': (0.12, 480 * 2**20)}
+# 노드별 requests 합의 상한(allocatable 대비). 교체 중 추가 Pod·JVM·DB 캐시 peak 여유를 남긴다.
+REQUEST_HEADROOM = 0.85
+
+
+def allocatable(node):
+    cpu_reserved = sum(rate * min(1, max(0, node['cpu'] - i)) for i, rate in enumerate([0.06, 0.01, 0.005, 0.005]))
+    cpu_reserved += 0.0025 * max(0, node['cpu'] - 4)
+    memory = node['memory_gib'] * 2**30 * 0.96 - (255 + 11 * node['max_pods'] + 100) * 2**20
+    return node['cpu'] - cpu_reserved, memory
+
+
+def pod_resources(pod):
+    """Pod 하나의 requests(cpu, memory)와 memory limit 합. init container 는 가장 큰 것과 비교한다."""
+    def total(containers, section, key):
+        return sum(quantity(c.get('resources', {}).get(section, {}).get(key, 0)) for c in containers)
+    def peak(section, key):
+        return max([total(pod['containers'], section, key)] +
+                   [quantity(c.get('resources', {}).get(section, {}).get(key, 0)) for c in pod.get('initContainers', [])])
+    return peak('requests', 'cpu'), peak('requests', 'memory'), total(pod['containers'], 'limits', 'memory')
+
+
+def schedulable_nodes(pod):
+    selector = pod.get('nodeSelector', {}).get('workload')
+    if selector:
+        return [selector]
+    tolerated = {t.get('value') for t in pod.get('tolerations', []) if t.get('key') == 'dedicated'}
+    exists = any(t.get('operator') == 'Exists' and not t.get('key') for t in pod.get('tolerations', []))
+    return [n for n in NODES if n == 'app' or exists or n in tolerated]
+
+
+def check_capacity(local, upstream):
+    """역할별 노드에 뜨는 Pod 의 requests·memory limit 합을 allocatable 추정값과 비교한다."""
+    usage = {n: {'cpu': 0.0, 'memory': 0.0, 'limit': 0.0, 'pods': []} for n in NODES}
+    missing = []
+
+    def add(node, name, cpu, memory, limit):
+        usage[node]['cpu'] += cpu
+        usage[node]['memory'] += memory
+        usage[node]['limit'] += limit
+        usage[node]['pods'].append(name)
+
+    for chart, docs in [*local.items(), *upstream.items()]:
+        if chart in ('seed', 'root', 'argo-cd', 'sample'):
+            continue   # argo-cd 는 bootstrap 이 따로 계산(아래), sample 은 검증용이라 운영에 두지 않는다
+        for doc in docs:
+            kind = doc['kind']
+            if kind in ('Deployment', 'StatefulSet', 'DaemonSet'):
+                pod = doc['spec']['template']['spec']
+                replicas = 1 if kind == 'DaemonSet' else doc['spec'].get('replicas', 1)
+                nodes = schedulable_nodes(pod)
+                assert kind == 'DaemonSet' or len(nodes) == 1, f'{chart}/{doc["metadata"]["name"]}: unplaced'
+                for node in nodes:
+                    cpu, memory, limit = pod_resources(pod)
+                    missing.append(f'{chart}/{doc["metadata"]["name"]}') if not (cpu > 0 and memory > 0) else None
+                    add(node, f'{chart}/{doc["metadata"]["name"]}', cpu * replicas, memory * replicas, limit * replicas)
+            elif kind in ('Prometheus', 'Alertmanager'):
+                spec = doc['spec']
+                resources = spec.get('resources', {})
+                # operator 가 붙이는 config-reloader(기본 10m/50Mi, limit 50Mi)를 더한다
+                add(spec['nodeSelector']['workload'], f'{chart}/{kind}',
+                    quantity(resources['requests']['cpu']) + 0.01, quantity(resources['requests']['memory']) + 50 * 2**20,
+                    quantity(resources['limits']['memory']) + 50 * 2**20)
+    for docs in [upstream['argo-cd']]:
+        for doc in docs:
+            if doc['kind'] in ('Deployment', 'StatefulSet'):
+                pod = doc['spec']['template']['spec']
+                cpu, memory, limit = pod_resources(pod)
+                add(schedulable_nodes(pod)[0], f'argo-cd/{doc["metadata"]["name"]}', cpu, memory, limit)
+    assert not missing, f'requests missing (scheduler cannot account for them): {sorted(set(missing))}'
+    for node in NODES:
+        for name, (cpu, memory) in EKS_DAEMONSETS.items():
+            add(node, 'eks/' + name, cpu, memory, 0)
+    for name, (cpu, memory) in EKS_APP_NODE_PODS.items():
+        add('app', 'eks/' + name, cpu, memory, 0)
+
+    report = []
+    for node, spec in NODES.items():
+        cpu_alloc, memory_alloc = allocatable(spec)
+        used = usage[node]
+        assert len(used['pods']) <= spec['max_pods'], f'{node}: too many pods'
+        assert used['cpu'] <= cpu_alloc * REQUEST_HEADROOM, f'{node}: CPU requests {used["cpu"]:.2f} > {REQUEST_HEADROOM:.0%} of {cpu_alloc:.2f}'
+        assert used['memory'] <= memory_alloc * REQUEST_HEADROOM, \
+            f'{node}: memory requests {used["memory"] / 2**30:.2f}Gi > {REQUEST_HEADROOM:.0%} of {memory_alloc / 2**30:.2f}Gi'
+        report.append(f'{node} ({spec["instance"]}): pods {len(used["pods"])}/{spec["max_pods"]}, '
+                      f'CPU req {used["cpu"]:.2f}/{cpu_alloc:.2f}, mem req {used["memory"] / 2**30:.1f}/{memory_alloc / 2**30:.1f}Gi, '
+                      f'mem limit {used["limit"] / 2**30:.1f}Gi')
+    # data 노드는 DB·Redis 가 같이 산다. limit 합이 allocatable 을 넘으면 둘이 함께 peak 일 때 노드가 OOM 으로 Pod 를 죽인다.
+    assert usage['data']['limit'] <= allocatable(NODES['data'])[1], 'data node memory limits overcommit'
+    return report, usage
+
+
+# 클러스터에서만 나오는 지표(kube-prometheus-stack 의 kubelet·cAdvisor·kube-state-metrics 와 Prometheus 자체).
+# 로컬에서 수집할 수 없어 이름을 여기 적는다. 앱·exporter 지표는 tests/fixtures/metrics/*.txt(실제 수집 결과)와 대조한다.
+CLUSTER_METRICS = {'up', 'container_memory_working_set_bytes', 'kube_pod_container_status_restarts_total',
+                   'kube_pod_container_resource_limits', 'kubelet_volume_stats_used_bytes', 'kubelet_volume_stats_capacity_bytes'}
+PROMQL_WORDS = {'by', 'without', 'on', 'ignoring', 'group_left', 'group_right', 'bool', 'and', 'or', 'unless', 'offset', 'inf', 'nan'}
+
+
+def promql_metrics(expr):
+    """PromQL 식에서 지표 이름만 뽑는다(문자열·라벨 조건·범위·함수·by() 라벨 제외)."""
+    expr = re.sub(r'"(?:[^"\\]|\\.)*"', '""', expr)
+    expr = re.sub(r'\{[^}]*\}', '', expr)
+    expr = re.sub(r'\[[^\]]*\]', '', expr)
+    expr = re.sub(r'\b(by|without|on|ignoring|group_left|group_right)\s*\([^)]*\)', '', expr)
+    names = set()
+    for match in re.finditer(r'[a-zA-Z_:][a-zA-Z0-9_:]*', expr):
+        rest = expr[match.end():].lstrip()
+        word = match.group()
+        if rest.startswith('(') or word.lower() in PROMQL_WORDS:
+            continue
+        if expr[max(0, match.start() - 1)].isdigit():
+            continue   # 5m, 1e3 같은 숫자 꼬리
+        names.add(word)
+    return names
+
+
+def check_queries(local):
+    """알림 규칙·대시보드의 PromQL 이 실제로 있는 지표만 쓰고, 대시보드가 있는 데이터 소스를 가리키는지."""
+    known = set(CLUSTER_METRICS)
+    for path in (ROOT / 'tests/fixtures/metrics').glob('*.txt'):
+        known |= {line.strip() for line in path.read_text().splitlines() if line.strip() and not line.startswith('#')}
+    jobs = {(m['metadata']['namespace'], m['metadata']['name']) for m in local['observability'] if m['kind'] == 'ServiceMonitor'}
+    exprs = []
+    rules = next(x for x in local['observability'] if x['kind'] == 'PrometheusRule')
+    exprs += [(f'rule {r["alert"]}', r['expr']) for g in rules['spec']['groups'] for r in g['rules']]
+    dashboards = [x for x in local['observability'] if x['kind'] == 'ConfigMap' and x['metadata'].get('labels', {}).get('grafana_dashboard') == '1']
+    uids = set()
+    for config in dashboards:
+        assert config['metadata']['namespace'] == 'monitoring'
+        (text,) = config['data'].values()
+        board = json.loads(text)
+        assert board['uid'] not in uids and board['editable'] is False, board['uid']
+        uids.add(board['uid'])
+        ids = [p['id'] for p in board['panels']]
+        assert len(ids) == len(set(ids)), f'{board["uid"]}: duplicate panel id'
+        for panel in board['panels']:
+            for target in panel.get('targets', []):
+                source = target['datasource']
+                assert source == panel['datasource'] and source['uid'] in ('prometheus', 'loki', 'tempo'), f'{board["uid"]}: {panel["title"]}'
+                if source['type'] == 'prometheus':
+                    exprs.append((f'{board["uid"]}: {panel["title"]}', target['expr']))
+    for name, expr in exprs:
+        unknown = promql_metrics(expr) - known
+        assert not unknown, f'{name}: unknown metrics {sorted(unknown)} (not in tests/fixtures/metrics or CLUSTER_METRICS)'
+        # job 라벨은 ServiceMonitor 이름(= Service 이름)이다. namespace 와 짝이 맞아야 한다.
+        for namespace, job in re.findall(r'namespace="([^"]+)",\s*job="([^"]+)"', expr):
+            if namespace != 'monitoring':
+                assert (namespace, job) in jobs, f'{name}: no ServiceMonitor {namespace}/{job}'
+    return len(dashboards), len(exprs)
 
 
 def quantity(value):

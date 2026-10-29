@@ -1,0 +1,18 @@
+{{- /*
+  9단계: Grafana 대시보드를 Git 으로 관리한다. kube-prometheus-stack 의 Grafana sidecar 가
+  모든 namespace 에서 grafana_dashboard=1 라벨 ConfigMap 을 읽는다. 관측 도구 쪽(monitoring)에 둔다.
+  JSON 은 dashboards/ 아래 파일 그대로다. Grafana 화면에서 고친 내용은 sync 때 덮어써진다(editable: false).
+*/}}
+{{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-{{ base $path | trimSuffix ".json" }}
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  {{ base $path }}: |
+    {{- $.Files.Get $path | nindent 4 }}
+{{- end }}
