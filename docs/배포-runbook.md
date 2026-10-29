@@ -140,3 +140,17 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
 2. BE를 바꿀 때만: AI 작업 비우기(앱-배포 문서 8절, `POST /actuator/aijob {"state":"drain"}` → `drained:true`). drain 중에도 다른 API는 동작한다(BE #52).
 3. `images.yaml` PR merge → `nerdnam-apps` sync. BE는 Recreate라 기동까지(수십 초) 중단된다.
 4. 대시보드에서 5xx·응답 시간·AI 작업 실패를 배포 전후로 비교한다.
+
+## 9. 실행 기록
+
+### 2026-10-29 AWS 루트 (1절)
+
+- 입력: 관리자 `user/nerdnam-infra`, 관리 IP `58.235.174.53/32`, Route53 zone `Z05779733GFC060X4PVOJ`(`nerdnam.click`, Route53에서 등록 직후라 공개 DNS 응답은 아직 없음), add-on은 서울 1.35의 AWS 기본 버전으로 고정(vpc-cni v1.22.4-eksbuild.10, kube-proxy v1.35.3-eksbuild.62, coredns v1.13.2-eksbuild.62, eks-pod-identity-agent v1.4.1-eksbuild.3, aws-ebs-csi-driver v1.67.2-eksbuild.1).
+- 기존 GitHub OIDC provider를 import했다(7절 철거 주의).
+- `terraform import` 중 CI push 정책 `for_each` 오류(ECR ARN이 apply 전에 미정)를 고쳤다(`a232f5c`).
+- 첫 apply: 75개 생성, 노드 그룹 3개 실패. EKS 실행자 정책에 빠진 권한이 두 번 나왔다. 정책을 고친 뒤 콘솔에서 바꿔 다시 apply했다.
+  1. 시작 템플릿으로 인스턴스를 띄우는 `ec2:RunInstances`·`ec2:CreateTags`(`c5d5925`)
+  2. 노드 그룹 서비스 연결 역할 확인용 `iam:GetRole`. 경로 없는 ARN 형식도 필요했다(`89f2b85`, `f6bb4e1`)
+- 결과: 80개 생성 + OIDC 태그 1개 변경, 다시 plan하면 차이 없음. EKS 생성 7분 43초, 노드 그룹 1~2분.
+- 확인: 노드 3대 Ready(v1.35.9), workload 라벨·taint·AZ가 설계와 같음, kube-system의 aws-node·kube-proxy·coredns 2·ebs-csi controller 2/node 3·pod-identity-agent 모두 Running, Pod Identity association 8개(cert-manager, external-secrets, LBC, aws-node, ebs-csi, loki, tempo, ai).
+- 실제 Allocatable: m7i.xlarge 3920m / 14.37Gi / 58 Pod, m7i.large 1930m / 6.94Gi / 29 Pod. 검증 스크립트 추정값을 이에 맞췄다.

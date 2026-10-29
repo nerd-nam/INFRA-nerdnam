@@ -554,7 +554,9 @@ def check_observability(local, upstream):
 # 9단계 용량 검사. 노드 allocatable 은 배포 전 추정값이다(배포 후 `kubectl describe node` 로 바꿔 확인).
 #   EKS AL2023: kube-reserved 메모리 = 255Mi + 11Mi × maxPods, CPU = 6%·1%·0.5%·0.5%(코어 순), eviction 100Mi.
 #   maxPods 는 VPC CNI 기본(prefix delegation 없음): m7i.xlarge 58, m7i.large 29.
-#   OS 가 보고하는 메모리(MemTotal)는 표기 용량보다 약 4% 작게 잡는다.
+#   OS 가 보고하는 메모리(MemTotal)는 표기 용량보다 5% 작게 잡는다.
+#   2026-10-29 실제 노드 Allocatable: m7i.xlarge 3920m / 14.37Gi / 58 Pod, m7i.large 1930m / 6.94Gi / 29 Pod.
+#   이 계산은 app·platform 14.23Gi, data 6.94Gi 로 실측과 같거나 약간 작다(보수적).
 NODES = {
     'app': {'instance': 'm7i.xlarge', 'cpu': 4, 'memory_gib': 16, 'max_pods': 58},
     'platform': {'instance': 'm7i.xlarge', 'cpu': 4, 'memory_gib': 16, 'max_pods': 58},
@@ -571,7 +573,7 @@ REQUEST_HEADROOM = 0.85
 def allocatable(node):
     cpu_reserved = sum(rate * min(1, max(0, node['cpu'] - i)) for i, rate in enumerate([0.06, 0.01, 0.005, 0.005]))
     cpu_reserved += 0.0025 * max(0, node['cpu'] - 4)
-    memory = node['memory_gib'] * 2**30 * 0.96 - (255 + 11 * node['max_pods'] + 100) * 2**20
+    memory = node['memory_gib'] * 2**30 * 0.95 - (255 + 11 * node['max_pods'] + 100) * 2**20
     return node['cpu'] - cpu_reserved, memory
 
 
