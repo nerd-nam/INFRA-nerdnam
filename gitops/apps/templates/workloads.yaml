@@ -52,6 +52,7 @@ spec:
           ports: [{name: http, containerPort: {{ $web.port }}}]
           env:
             - {name: API_ORIGIN, value: "http://api.nerdnam.svc.cluster.local:{{ $api.port }}"}
+            {{- include "apps.otelEnv" (dict "root" $ "name" "web") | nindent 12 }}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $web.resources | nindent 12 }}
           readinessProbe:
@@ -118,6 +119,7 @@ spec:
             - {name: NERDNAM_AUTH_LOGIN_FAILURE_URL, value: "{{ include "apps.publicOrigin" $ }}/?login=failed"}
             - {name: NERDNAM_AI_STUB, value: "false"}
             - {name: NERDNAM_AI_BASE_URL, value: "http://ai.nerdnam.svc.cluster.local:{{ $ai.port }}"}
+            {{- include "apps.otelEnv" (dict "root" $ "name" "api") | nindent 12 }}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $api.resources | nindent 12 }}
           # liveness = 프로세스만(livenessState), readiness = readinessState + db + redis (BE #42).
@@ -172,6 +174,7 @@ spec:
             - {name: LLM_MODEL, value: {{ $ai.llmModel | quote }}}
             - {name: EMBED_MODEL_ID, value: {{ $ai.embedModel | quote }}}
             - {name: AWS_EC2_METADATA_DISABLED, value: "true"}   # 노드 역할로 넘어가지 않게
+            {{- include "apps.otelEnv" (dict "root" $ "name" "ai") | nindent 12 }}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $ai.resources | nindent 12 }}
           # /livez = 프로세스, /readyz = 첫 연결 확인이 끝났고 LLM·임베딩 중 하나라도 쓸 수 있음 (AI #35).

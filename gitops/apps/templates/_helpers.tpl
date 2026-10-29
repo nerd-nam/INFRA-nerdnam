@@ -28,3 +28,29 @@ capabilities: {drop: [ALL]}
 {{- define "apps.publicOrigin" -}}
 https://{{ required "environment.appHostname is required" .Values.environment.appHostname }}
 {{- end -}}
+
+{{/* 8단계 trace: 표준 OTEL_* 환경 변수. 지표는 Prometheus, 로그는 stdout → Loki 라 OTLP 로는 trace 만 보낸다. */}}
+{{- define "apps.otelEnv" -}}
+{{- $t := .root.Values.tracing -}}
+- name: K8S_POD_NAME
+  valueFrom: {fieldRef: {fieldPath: metadata.name}}
+- {name: OTEL_SERVICE_NAME, value: {{ .name | quote }}}
+- {name: OTEL_RESOURCE_ATTRIBUTES, value: "k8s.cluster.name={{ required "environment.clusterName is required" .root.Values.environment.clusterName }},k8s.namespace.name=nerdnam,k8s.pod.name=$(K8S_POD_NAME)"}
+- {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://{{ $t.alloyHost }}:{{ $t.otlpHttpPort }}"}
+- {name: OTEL_EXPORTER_OTLP_PROTOCOL, value: http/protobuf}
+- {name: OTEL_TRACES_EXPORTER, value: otlp}
+- {name: OTEL_METRICS_EXPORTER, value: none}
+- {name: OTEL_LOGS_EXPORTER, value: none}
+- {name: OTEL_TRACES_SAMPLER, value: parentbased_traceidratio}
+- {name: OTEL_TRACES_SAMPLER_ARG, value: {{ $t.sampleRatio | quote }}}
+{{- end -}}
+
+{{/* 8단계: 각 앱 → monitoring/alloy OTLP HTTP. */}}
+{{- define "apps.otlpEgress" -}}
+- to:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: monitoring}
+      podSelector:
+        matchLabels: {app.kubernetes.io/name: alloy}
+  ports: [{protocol: TCP, port: {{ .Values.tracing.otlpHttpPort }}}]
+{{- end -}}

@@ -34,6 +34,8 @@ K8S_OPENAPI = {
 # Secrets Manager nerdnam/dev/data JSON 키 계약 (docs/데이터-계층-작업계획.md)
 DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password',
                     'postgres-exporter-password', 'redis-exporter-password'}
+OTLP_HTTP_PORT = 4318   # 앱 → Alloy (8단계)
+TEMPO_OTLP_GRPC_PORT = 4317   # Alloy → Tempo
 BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
                      'SPRING_FLYWAY_PASSWORD': 'postgres-migrator-password',
                      'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password'}
@@ -183,6 +185,8 @@ def main():
           'pod security, probes, secret keys, quota and BE<->data network policies')
     print(f'PASS: observability ({obs_count} scrape targets): platform placement incl. Prometheus/Alertmanager, retained PVCs, '
           'Loki on S3 via Pod Identity, least-privilege Alloy RBAC, ServiceMonitor<->Service<->NetworkPolicy match')
+    print('PASS: tracing: apps OTEL env -> Alloy OTLP HTTP (egress policy) -> Tempo OTLP gRPC only, Tempo on S3 via Pod Identity, '
+          'read-only root, Grafana Tempo<->Loki links')
     print(f'PASS: apps ({app_count} Deployments): digest-pinned ECR images, placement, pod security, probes, '
           'public routes, Bedrock identity and namespace traffic policies')
 
@@ -353,13 +357,34 @@ def check_apps(local):
                     target = peer['ipBlock']['cidr']
                     if target == '0.0.0.0/0':
                         assert {'10.0.0.0/8', '169.254.0.0/16'} <= set(peer['ipBlock']['except']), 'internet rule must exclude private ranges'
+                elif 'namespaceSelector' in peer:
+                    # 다른 namespace 는 namespace 와 Pod 를 함께 고른 경우만 허용한다(namespace 전체로 열지 않는다).
+                    target = (peer['namespaceSelector']['matchLabels']['kubernetes.io/metadata.name'] + '/'
+                              + peer['podSelector']['matchLabels']['app.kubernetes.io/name'])
                 else:
                     target = peer['podSelector']['matchLabels']['app']
                 for port in rule_['ports']:
                     egress_to.setdefault(source, set()).add((target, port['port']))
-    assert egress_to == {'web': {('api', ports['api'])},
-                         'api': {('ai', ports['ai']), ('0.0.0.0/0', 443)},
-                         'ai': {('169.254.170.23/32', 80), ('0.0.0.0/0', 443)}}
+    otlp = ('monitoring/alloy', OTLP_HTTP_PORT)
+    assert egress_to == {'web': {('api', ports['api']), otlp},
+                         'api': {('ai', ports['ai']), ('0.0.0.0/0', 443), otlp},
+                         'ai': {('169.254.170.23/32', 80), ('0.0.0.0/0', 443), otlp}}
+
+    # 8단계 trace: 앱마다 표준 OTEL_* 로 Alloy 에 trace 만 보낸다. service.name 은 Loki 의 app 라벨과 같아야
+    # Grafana 가 trace → 로그로 간다.
+    for name, deployment in deployments.items():
+        container = deployment['spec']['template']['spec']['containers'][0]
+        env = {e['name']: e.get('value') for e in container['env']}
+        assert env['OTEL_SERVICE_NAME'] == name == deployment['spec']['template']['metadata']['labels']['app'], name
+        assert env['OTEL_EXPORTER_OTLP_ENDPOINT'] == f'http://alloy.monitoring.svc.cluster.local:{OTLP_HTTP_PORT}', name
+        assert env['OTEL_EXPORTER_OTLP_PROTOCOL'] == 'http/protobuf', name
+        assert env['OTEL_TRACES_EXPORTER'] == 'otlp' and env['OTEL_METRICS_EXPORTER'] == env['OTEL_LOGS_EXPORTER'] == 'none', \
+            f'{name}: metrics come from Prometheus and logs from stdout; OTLP carries traces only'
+        assert env['OTEL_TRACES_SAMPLER'] == 'parentbased_traceidratio' and 0 < float(env['OTEL_TRACES_SAMPLER_ARG']) <= 1, name
+        # $(K8S_POD_NAME) 는 앞에 정의된 env 만 치환된다.
+        names = [e['name'] for e in container['env']]
+        assert names.index('K8S_POD_NAME') < names.index('OTEL_RESOURCE_ATTRIBUTES'), name
+        assert 'k8s.pod.name=$(K8S_POD_NAME)' in env['OTEL_RESOURCE_ATTRIBUTES'], name
     data_egress = next(x for x in local['data'] if x['kind'] == 'NetworkPolicy' and x['metadata']['name'] == 'allow-api-to-data')
     assert data_egress['spec']['podSelector']['matchLabels'] == {'app': 'api'}, 'data chart must select the same BE pods'
 
@@ -397,7 +422,7 @@ def check_observability(local, upstream):
     assert claims and all(x['spec']['storageClassName'] == 'gp3-retain' for x in claims)
     node_exporter = next(x for x in stack if x['kind'] == 'DaemonSet')['spec']['template']['spec']
     assert any(t.get('operator') == 'Exists' for t in node_exporter['tolerations']), 'node-exporter must run on every node'
-    assert not any(x['kind'] in ('Ingress',) for docs in [stack, upstream['loki'], upstream['alloy']] for x in docs)
+    assert not any(x['kind'] in ('Ingress',) for docs in [stack, upstream['loki'], upstream['alloy'], upstream['tempo']] for x in docs)
 
     # Loki: S3 + Pod Identity(SA 이름이 Terraform association 과 같아야 한다). 정적 키 없음.
     loki = upstream['loki']
@@ -423,6 +448,67 @@ def check_observability(local, upstream):
     assert not any('hostPath' in v for v in alloy_deploy['spec']['template']['spec'].get('volumes', []))
     alloy_config = next(x['data']['config.alloy'] for x in alloy if x['kind'] == 'ConfigMap' and 'config.alloy' in x.get('data', {}))
     assert 'http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push' in alloy_config
+
+    # 8단계 trace 경로: 앱 → Alloy OTLP HTTP → Tempo OTLP gRPC. 이름·포트·라벨이 세 차트 사이에서 맞아야 한다.
+    alloy_pod = alloy_deploy['spec']['template']
+    assert alloy_pod['metadata']['labels'].get('app.kubernetes.io/name') == 'alloy', 'apps egress selects alloy pods by this label'
+    alloy_ports = {p['containerPort'] for c in alloy_pod['spec']['containers'] for p in c.get('ports', [])}
+    assert OTLP_HTTP_PORT in alloy_ports
+    (alloy_service,) = [x for x in alloy if x['kind'] == 'Service' and x['metadata']['name'] == 'alloy']
+    assert any(p['port'] == OTLP_HTTP_PORT for p in alloy_service['spec']['ports'])
+    assert f'endpoint = "0.0.0.0:{OTLP_HTTP_PORT}"' in alloy_config and 'grpc {' not in alloy_config, 'Alloy receives OTLP over HTTP only'
+    assert f'endpoint = "tempo.monitoring.svc.cluster.local:{TEMPO_OTLP_GRPC_PORT}"' in alloy_config
+    assert 'otelcol.processor.memory_limiter' in alloy_config, 'trace spikes must not OOM the log collector'
+    for signal in ('metrics', 'logs'):
+        assert f'{signal} =' not in alloy_config.split('otelcol.receiver.otlp', 1)[1], f'OTLP {signal} would duplicate Prometheus/Loki'
+
+    # Tempo: monolithic 1개, S3 + Pod Identity(SA 이름이 Terraform association 과 같아야 한다), 정적 키 없음.
+    tempo = upstream['tempo']
+    (tempo_sts,) = [x for x in tempo if x['kind'] == 'StatefulSet']
+    assert not [x for x in tempo if x['kind'] in ('Deployment', 'StatefulSet', 'DaemonSet', 'Ingress') and x is not tempo_sts]
+    tempo_pod = tempo_sts['spec']['template']['spec']
+    assert tempo_pod['serviceAccountName'] == 'tempo' and tempo_sts['spec']['replicas'] == 1
+    assert tempo_pod['nodeSelector'].get('workload') == 'platform' and tolerates(tempo_pod)
+    assert tempo_sts['spec']['volumeClaimTemplates'][0]['spec']['storageClassName'] == 'gp3-retain'
+    (tempo_container,) = tempo_pod['containers']
+    assert tempo_container['securityContext']['readOnlyRootFilesystem'] is True
+    assert tempo_container['securityContext']['capabilities']['drop'] == ['ALL']
+    assert tempo_pod['securityContext']['runAsNonRoot'] is True
+    assert 'limits' in tempo_container['resources'] and 'requests' in tempo_container['resources']
+    assert not any(e['name'].startswith('AWS_') for e in tempo_container.get('env') or [])
+    tempo_cm = next(x for x in tempo if x['kind'] == 'ConfigMap' and 'tempo.yaml' in x.get('data', {}))
+    tempo_config = yaml.safe_load(tempo_cm['data']['tempo.yaml'])
+    trace = tempo_config['storage']['trace']
+    assert trace['backend'] == 's3' and trace['s3']['bucket'] == 'nerdnam-dev-tempo-082139775699-ap-northeast-2'
+    assert not {'access_key', 'secret_key', 'insecure'} & set(trace['s3']), 'Pod Identity and TLS only'
+    assert trace['wal']['path'].startswith('/var/tempo/'), 'WAL must be on the PVC'
+    assert tempo_config['distributor']['receivers'] == {'otlp': {'protocols': {'grpc': {'endpoint': f'0.0.0.0:{TEMPO_OTLP_GRPC_PORT}'}}}}, \
+        'Tempo listens only for Alloy (no Jaeger/Zipkin/OTLP HTTP)'
+    assert tempo_config['backend_worker']['compaction']['block_retention'] == '72h'
+    assert tempo_config['backend_scheduler']['provider']['compaction']['compaction']['block_retention'] == '72h'
+    assert tempo_config['usage_report']['reporting_enabled'] is False and tempo_config['multitenancy_enabled'] is False
+    (tempo_service,) = [x for x in tempo if x['kind'] == 'Service' and x['metadata']['name'] == 'tempo']
+    assert {TEMPO_OTLP_GRPC_PORT, 3200} <= {p['port'] for p in tempo_service['spec']['ports']}
+    assert tempo_service['spec'].get('type', 'ClusterIP') == 'ClusterIP'
+
+    # Grafana: Tempo 데이터 소스와 로그 ↔ trace 연결. uid 가 서로를 가리킨다.
+    datasources = [d for x in stack if x['kind'] == 'ConfigMap' for key, text in x.get('data', {}).items()
+                   if key.endswith('.yaml') and 'datasources:' in text for d in yaml.safe_load(text)['datasources']]
+    by_uid = {d.get('uid'): d for d in datasources}
+    assert by_uid['tempo']['type'] == 'tempo' and by_uid['tempo']['url'] == 'http://tempo.monitoring.svc.cluster.local:3200'
+    assert by_uid['tempo']['jsonData']['tracesToLogsV2']['datasourceUid'] == 'loki'
+    assert {'key': 'service.name', 'value': 'app'} in by_uid['tempo']['jsonData']['tracesToLogsV2']['tags'], \
+        'service.name(OTEL_SERVICE_NAME) maps to the Loki app label set by Alloy'
+    (derived,) = by_uid['loki']['jsonData']['derivedFields']
+    assert derived['datasourceUid'] == 'tempo'
+    # Grafana 는 provisioning 파일의 ${...} 를 환경 변수로 바꾼다. $$ 로 써야 ${__value.raw} 가 남는다.
+    assert derived['url'] == '$${__value.raw}'
+    trace_id = 'ab' * 16
+    for line in [f'{{"level":"INFO","trace_id":"{trace_id}","span_id":"{"cd" * 8}"}}', f'level=INFO trace_id={trace_id} msg=ok',
+                 f'{{"traceId":"{trace_id}"}}']:
+        assert re.search(derived['matcherRegex'], line).group(1) == trace_id, line
+    assert not re.search(derived['matcherRegex'], '{"member_id":"' + 'ab' * 16 + '"}')
+    assert '__meta_kubernetes_pod_label_app' in alloy_config and 'target_label  = "app"' in alloy_config
 
     # ServiceMonitor → Service(라벨·포트 이름) → NetworkPolicy(Prometheus 허용)가 서로 맞는지.
     services = {(x['metadata']['namespace'], x['metadata']['name']): x for chart in ['apps', 'data'] for x in local[chart] if x['kind'] == 'Service'}

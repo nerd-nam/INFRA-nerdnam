@@ -33,7 +33,7 @@ api:
 
 ai:
   port: 8000
-  uid: 65532      # AI 이미지는 USER 가 없어 root 로 뜬다. 임의의 비root uid 로 실행한다
+  uid: 65532      # AI 이미지의 USER 65532 (AI #34)
   gid: 65532
   llmModel: global.amazon.nova-2-lite-v1:0     # modules/workload 의 IAM 범위와 같아야 한다
   embedModel: amazon.titan-embed-text-v2:0
@@ -42,6 +42,14 @@ ai:
   resources:
     requests: {cpu: 250m, memory: 512Mi}
     limits: {memory: 1Gi}
+
+# 8단계 trace. 앱은 표준 OpenTelemetry 환경 변수(OTEL_*)를 읽어 monitoring/alloy 로 OTLP HTTP 를 보낸다.
+# 계측 자체는 앱 저장소 일이다(BE·AI·FE 이슈). 계측이 없는 이미지에는 이 값들이 아무 영향이 없다.
+tracing:
+  alloyHost: alloy.monitoring.svc.cluster.local
+  otlpHttpPort: 4318
+  # 구축 계획 7장: 개발 검증 동안 100%, 수집량을 잰 뒤 head sampling 10%(0.1)로 내린다.
+  sampleRatio: "1.0"
 
 # 클러스터 밖으로 나가는 HTTPS(Google·Kakao OAuth, Bedrock)는 NAT 를 거친다. 사설 대역은 막는다.
 egress:

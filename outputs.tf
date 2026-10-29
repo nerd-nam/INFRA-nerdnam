@@ -27,6 +27,6 @@ output "workload" {
 }
 
 output "observability" {
-  description = "Loki 로그 bucket 과 역할. bootstrap 이 bucket 이름을 GitOps 로 넘긴다."
+  description = "Loki 로그·Tempo trace bucket 과 역할. bootstrap 이 bucket 이름을 GitOps 로 넘긴다."
   value       = module.observability
 }

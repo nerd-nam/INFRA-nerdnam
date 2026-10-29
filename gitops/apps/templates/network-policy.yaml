@@ -5,7 +5,9 @@
     api     → ai:8000           (AI 호출)     api → postgres/redis 는 gitops/data 의 allow-api-to-data
     api     → 외부 443          (Google·Kakao OAuth)
     ai      → 외부 443          (Bedrock), Pod Identity Agent:80
-  AI·web 은 DB·Redis 에 닿지 않는다. 7단계 Prometheus·OTLP 경로는 관측 단계에서 추가한다.
+    Prometheus(monitoring) → api:8081 (지표, 7단계)
+    web·api·ai → monitoring/alloy:4318 (OTLP trace, 8단계)
+  AI·web 은 DB·Redis 에 닿지 않는다.
 */}}
 {{- $v := .Values }}
 {{- define "apps.internetHttps" }}
@@ -94,6 +96,7 @@ spec:
         - podSelector:
             matchLabels: {app: api}
       ports: [{protocol: TCP, port: {{ $v.api.port }}}]
+    {{- include "apps.otlpEgress" . | nindent 4 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -110,6 +113,7 @@ spec:
             matchLabels: {app: ai}
       ports: [{protocol: TCP, port: {{ $v.ai.port }}}]
     {{- include "apps.internetHttps" . | nindent 4 }}
+    {{- include "apps.otlpEgress" . | nindent 4 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -125,3 +129,4 @@ spec:
         - ipBlock: {cidr: {{ $v.egress.podIdentityAgent }}}
       ports: [{protocol: TCP, port: 80}]
     {{- include "apps.internetHttps" . | nindent 4 }}
+    {{- include "apps.otlpEgress" . | nindent 4 }}

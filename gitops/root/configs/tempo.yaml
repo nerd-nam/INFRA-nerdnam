@@ -1,0 +1,74 @@
+{{- /*
+  8단계: Tempo 한 개(monolithic, grafana-community/tempo). trace block 은 S3(modules/observability), WAL·live-store 는 PVC.
+  Tempo 3.x 의 microservices 모드는 Kafka 가 필요하지만 monolithic 은 필요 없다.
+  앱은 Tempo 로 직접 보내지 않는다. 앱 → Alloy(OTLP HTTP 4318) → Tempo(OTLP gRPC 4317).
+*/}}
+{{- $bucket := required "environment.tempoBucket is required" .Values.environment.tempoBucket }}
+{{- $region := required "environment.region is required" .Values.environment.region }}
+{{- $retention := "72h" }}{{/* 3일. S3 lifecycle(12일, modules/observability trace_retention_days×4)은 이보다 길게 둔 안전망이다 */}}
+fullnameOverride: tempo
+replicas: 1
+# Pod Identity(monitoring/tempo → nerdnam-dev-tempo 역할). minio-go 가 EKS Pod Identity 토큰 파일을 읽는다. 정적 키를 넣지 않는다.
+serviceAccount:
+  create: true
+  name: tempo
+tempo:
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 1536Mi}
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: {drop: [ALL]}
+  extraVolumeMounts:
+    - {name: tmp, mountPath: /tmp}
+extraVolumes:
+  - name: tmp
+    emptyDir: {sizeLimit: 256Mi}
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClassName: gp3-retain
+nodeSelector:
+  workload: platform
+tolerations:
+  - {key: dedicated, operator: Equal, value: platform, effect: NoSchedule}
+serviceMonitor:
+  enabled: true
+# 설정 파일을 직접 쓴다. 차트 기본 설정은 tempo.receivers 를 그대로 넣는데, 차트의 Service 템플릿이 jaeger 항목을
+# 필수로 읽어서 values 로는 Jaeger 수신을 끌 수 없다. 여기서는 Alloy 가 쓰는 OTLP gRPC 만 연다.
+# (Service 에는 차트가 고정으로 넣는 jaeger·zipkin 포트가 남지만 Tempo 가 듣지 않는다.)
+config: |
+  stream_over_http_enabled: false
+  multitenancy_enabled: false
+  usage_report:
+    reporting_enabled: false
+  memberlist:
+    cluster_label: tempo.monitoring
+  backend_scheduler:
+    provider:
+      compaction:
+        compaction:
+          block_retention: {{ $retention }}
+  backend_worker:
+    compaction:
+      block_retention: {{ $retention }}
+  distributor:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+  server:
+    http_listen_port: 3200
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: {{ $bucket }}
+        endpoint: s3.{{ $region }}.amazonaws.com
+        region: {{ $region }}
+      wal:
+        path: /var/tempo/wal
+  overrides:
+    per_tenant_override_config: /conf/overrides.yaml

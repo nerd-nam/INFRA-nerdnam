@@ -16,6 +16,7 @@ environment:
     ai: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/ai-ABC123
     monitoring: arn:aws:secretsmanager:ap-northeast-2:082139775699:secret:nerdnam/dev/monitoring-ABC123
   lokiBucket: nerdnam-dev-loki-082139775699-ap-northeast-2
+  tempoBucket: nerdnam-dev-tempo-082139775699-ap-northeast-2
   appHostname: app.example.invalid
 images:
   web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:1111111111111111111111111111111111111111111111111111111111111111

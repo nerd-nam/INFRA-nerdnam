@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ManageLokiBucket",
+      "Sid": "ManageObservabilityBuckets",
       "Effect": "Allow",
       "Action": [
         "s3:CreateBucket",
@@ -33,11 +33,12 @@
         "s3:GetAccelerateConfiguration"
       ],
       "Resource": [
-        "arn:aws:s3:::nerdnam-dev-loki-082139775699-ap-northeast-2"
+        "arn:aws:s3:::nerdnam-dev-loki-082139775699-ap-northeast-2",
+        "arn:aws:s3:::nerdnam-dev-tempo-082139775699-ap-northeast-2"
       ]
     },
     {
-      "Sid": "ManageLokiRole",
+      "Sid": "ManageObservabilityRoles",
       "Effect": "Allow",
       "Action": [
         "iam:CreateRole",
@@ -56,17 +57,19 @@
         "iam:DeleteRolePolicy"
       ],
       "Resource": [
-        "arn:aws:iam::082139775699:role/nerdnam-dev-loki"
+        "arn:aws:iam::082139775699:role/nerdnam-dev-loki",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-tempo"
       ]
     },
     {
-      "Sid": "PassLokiRoleToPodIdentity",
+      "Sid": "PassObservabilityRolesToPodIdentity",
       "Effect": "Allow",
       "Action": [
         "iam:PassRole"
       ],
       "Resource": [
-        "arn:aws:iam::082139775699:role/nerdnam-dev-loki"
+        "arn:aws:iam::082139775699:role/nerdnam-dev-loki",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-tempo"
       ],
       "Condition": {
         "StringEquals": {

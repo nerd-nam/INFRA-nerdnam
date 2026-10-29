@@ -1,7 +1,9 @@
 {{- /*
   7단계 로그 수집. 구축 계획은 노드별 DaemonSet + 노드 로그 파일(hostPath, root 권한)이었지만,
   노드가 3대뿐이라 platform 노드의 Alloy 1개가 Kubernetes API(pods/log)로 모든 Pod 로그를 읽는다.
-  hostPath·root 없이 동작한다. 8단계 OTLP 수신도 이 Alloy 가 맡는다.
+  hostPath·root 없이 동작한다.
+  8단계: 앱의 trace 도 이 Alloy 가 OTLP HTTP(4318)로 받아 Tempo(OTLP gRPC 4317)로 보낸다.
+  지표는 Prometheus, 로그는 stdout → Loki 가 맡으므로 OTLP 로는 trace 만 받는다(중복 수집 금지).
 */}}
 {{- $platform := dict "nodeSelector" (dict "workload" "platform") "tolerations" (list (dict "key" "dedicated" "operator" "Equal" "value" "platform" "effect" "NoSchedule")) }}
 fullnameOverride: alloy
@@ -25,6 +27,9 @@ rbac:
       verbs: ["get", "list", "watch"]
   # clusterRules(노드·노드 지표 읽기)는 차트 기본값을 쓴다. 비우면 차트 템플릿이 깨진다.
 alloy:
+  # 앱(nerdnam namespace)이 보내는 OTLP HTTP. 통신 정책은 gitops/apps 의 egress 가 연다.
+  extraPorts:
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
   resources:
     requests: {cpu: 100m, memory: 192Mi}
     limits: {memory: 512Mi}
@@ -84,6 +89,37 @@ alloy:
       }
       loki.source.kubernetes_events "events" {
         forward_to = [loki.write.default.receiver]
+      }
+      // 8단계 trace: 앱 → (OTLP HTTP 4318) → 메모리 상한 → 묶음 → Tempo(OTLP gRPC 4317).
+      // 메모리 상한을 넘으면 새 span 을 거절한다(앱 SDK 는 버리고 계속 동작). Alloy 가 OOM 으로 로그 수집까지 멈추지 않게 한다.
+      otelcol.receiver.otlp "apps" {
+        http {
+          endpoint = "0.0.0.0:4318"
+        }
+        output {
+          traces = [otelcol.processor.memory_limiter.traces.input]
+        }
+      }
+      otelcol.processor.memory_limiter "traces" {
+        check_interval = "1s"
+        limit          = "256MiB"
+        spike_limit    = "64MiB"
+        output {
+          traces = [otelcol.processor.batch.traces.input]
+        }
+      }
+      otelcol.processor.batch "traces" {
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.monitoring.svc.cluster.local:4317"
+          tls {
+            insecure = true
+          }
+        }
       }
       loki.write "default" {
         endpoint {

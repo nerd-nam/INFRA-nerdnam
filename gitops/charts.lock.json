@@ -58,5 +58,12 @@
     "appVersion": "v1.20.1",
     "url": "https://github.com/grafana/helm-charts/releases/download/alloy-1.13.1/alloy-1.13.1.tgz",
     "digest": "6c2b7df23e39438bb11f1e1fcf19eb9eb7c8bfeab7d49b7c975b6212abd0f99a"
+  },
+  "tempo": {
+    "repo": "https://grafana-community.github.io/helm-charts",
+    "version": "3.2.0",
+    "appVersion": "3.1.0",
+    "url": "https://github.com/grafana-community/helm-charts/releases/download/tempo-3.2.0/tempo-3.2.0.tgz",
+    "digest": "3494fb80021722b1bc4d9403f9affbe3838a849fb6563e4db94c9271cc958e05"
   }
 }
