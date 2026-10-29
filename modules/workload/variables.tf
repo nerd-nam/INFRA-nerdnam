@@ -14,16 +14,21 @@ variable "ecr_repository_arns" {
 }
 
 variable "github_repositories" {
-  description = "이미지별 GitHub 저장소(owner/name). OIDC trust 의 sub 조건이 된다."
+  description = <<-EOT
+    이미지별 GitHub 저장소. OIDC 토큰의 sub 앞부분 그대로(repo: 뒤)이며 trust 의 sub 조건이 된다.
+    nerd-nam 저장소는 GitHub 의 immutable subject(owner@ID/name@ID)를 쓴다. 저장소를 지우고 같은 이름으로
+    다시 만들어도 ID 가 달라 역할을 받을 수 없다. 확인:
+      gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix
+  EOT
   type        = map(string)
   default = {
-    web = "nerd-nam/FE-nerdnam"
-    api = "nerd-nam/BE-nerdnam"
-    ai  = "nerd-nam/AI-nerdnam"
+    web = "nerd-nam@345653190/FE-nerdnam@1427904148"
+    api = "nerd-nam@345653190/BE-nerdnam@1427904375"
+    ai  = "nerd-nam@345653190/AI-nerdnam@1427905046"
   }
   validation {
-    condition     = toset(keys(var.github_repositories)) == toset(["web", "api", "ai"]) && alltrue([for r in values(var.github_repositories) : can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", r))])
-    error_message = "web, api, ai 각각 owner/name 형식의 저장소가 필요합니다."
+    condition     = toset(keys(var.github_repositories)) == toset(["web", "api", "ai"]) && alltrue([for r in values(var.github_repositories) : can(regex("^[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$", r))])
+    error_message = "web, api, ai 각각 owner@ID/name@ID 형식(GitHub immutable subject)이 필요합니다."
   }
 }
 

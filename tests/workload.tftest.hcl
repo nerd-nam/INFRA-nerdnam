@@ -65,6 +65,12 @@ run "ci_push_is_scoped_per_repository" {
     error_message = "CI 역할은 해당 저장소의 main 브랜치 workflow 만 받을 수 있어야 합니다."
   }
   assert {
+    # GitHub 가 실제로 보내는 sub(immutable subject, 2026-10-29 FE workflow 실패에서 확인)와 글자 그대로 같아야 한다
+    condition = toset(one([for c in data.aws_iam_policy_document.ci_trust["web"].statement[0].condition : c.values
+    if c.variable == "token.actions.githubusercontent.com:sub"])) == toset(["repo:nerd-nam@345653190/FE-nerdnam@1427904148:ref:refs/heads/main"])
+    error_message = "CI trust 의 sub 는 GitHub immutable subject(owner@ID/name@ID) 형식이어야 합니다."
+  }
+  assert {
     condition = alltrue([for k, doc in data.aws_iam_policy_document.ci_push :
     toset(doc.statement[1].resources) == toset([var.ecr_repository_arns[k]]) && !contains(doc.statement[1].actions, "ecr:DeleteRepository")])
     error_message = "각 CI 역할은 자기 ECR repository 에만 push 해야 합니다."
