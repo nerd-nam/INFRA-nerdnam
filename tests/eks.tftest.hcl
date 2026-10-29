@@ -83,3 +83,28 @@ run "reject_unknown_addon" {
   variables { addon_versions = { typo = "v1.0.0-eksbuild.1" } }
   expect_failures = [var.addon_versions]
 }
+
+# 개발하지 않을 때 비용을 줄이는 중지 상태(docs/운영-중지-재개.md). 노드만 0 이고 클러스터·노드 그룹·add-on 은 남는다.
+run "stopped_keeps_cluster_and_groups" {
+  command = plan
+  module { source = "./modules/eks" }
+  variables { node_count = 0 }
+
+  assert {
+    condition = alltrue([for group in aws_eks_node_group.this :
+      group.scaling_config[0].min_size == 0 && group.scaling_config[0].desired_size == 0 && group.scaling_config[0].max_size == 1
+    ]) && length(aws_eks_node_group.this) == 3
+    error_message = "중지 때는 세 노드 그룹을 지우지 않고 노드 수만 0 으로 한다(max_size 는 AWS 제한상 1)."
+  }
+  assert {
+    condition     = aws_eks_cluster.this.name == "nerdnam-dev" && length(aws_ecr_repository.apps) == 3
+    error_message = "중지해도 클러스터와 ECR 은 남아야 한다."
+  }
+}
+
+run "reject_more_than_one_node" {
+  command = plan
+  module { source = "./modules/eks" }
+  variables { node_count = 2 }
+  expect_failures = [var.node_count]
+}

@@ -194,10 +194,11 @@ resource "aws_eks_node_group" "this" {
   version         = var.kubernetes_version
   capacity_type   = "ON_DEMAND"
   labels          = { workload = each.key }
+  # 중지(node_count=0) 때 EKS 가 노드를 drain 한 뒤 종료한다. PVC(EBS)는 Retain 이라 남고, 다시 1 로 올리면 같은 AZ 노드에 붙는다.
   scaling_config {
-    min_size     = 1
-    desired_size = 1
-    max_size     = 1
+    min_size     = var.node_count
+    desired_size = var.node_count
+    max_size     = 1 # 0 일 수 없다(AWS 제한)
   }
   dynamic "taint" {
     for_each = each.key == "app" ? [] : [each.key]

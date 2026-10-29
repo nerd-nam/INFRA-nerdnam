@@ -32,6 +32,11 @@ variable "eks_instance_types" {
   type    = object({ app = string, platform = string, data = string })
   default = { app = "m7i.xlarge", platform = "m7i.xlarge", data = "m7i.large" }
 }
+variable "eks_node_count" {
+  description = "역할별 노드 수. 0 = 중지(EC2 비용 없음, 데이터 EBS 는 남음), 1 = 운영. -var eks_node_count=0 으로 바꾼다(docs/운영-중지-재개.md)."
+  type        = number
+  default     = 1
+}
 variable "eks_addon_versions" {
   description = "add-on 호환 버전 고정값. 비어 있으면 AWS 기본 버전을 조회한다."
   type        = map(string)

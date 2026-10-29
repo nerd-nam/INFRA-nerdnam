@@ -24,6 +24,7 @@ module "eks" {
   public_access_cidrs = var.eks_public_access_cidrs
   instance_types      = var.eks_instance_types
   addon_versions      = var.eks_addon_versions
+  node_count          = var.eks_node_count
 }
 
 module "platform" {
