@@ -172,4 +172,20 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
   1. 수동 sync 요청에 Application의 syncOptions가 안 들어가 namespace 미생성·ESO CRD annotation 크기 초과 → `scripts/argo-sync.sh`.
   2. StatefulSet `volumeClaimTemplates`에 API 기본값(apiVersion·kind·volumeMode)이 없어 상시 OutOfSync → 템플릿에 명시.
   3. LBC 차트가 렌더마다 새 webhook 인증서를 만들어 상시 OutOfSync → `enableCertManager: true`. cert-manager가 **같은 이름의 Secret**(`aws-load-balancer-tls`)에 새 인증서를 쓰므로, Argo가 "prune 대상"으로 보이는 그 Secret을 지우지 않고 Argo 추적 annotation만 지웠다. **이 Secret을 prune하면 LBC webhook이 깨진다.**
-- 남은 일: 앱 이미지(CI 변수·push) → `images.yaml` → `nerdnam-apps`, `nerdnam.click` A 레코드, staging → 운영 인증서 전환, Kakao 키.
+
+### 2026-10-29 앱 배포 (2절·5절 9번)
+
+- 앱 저장소 변수: FE `AWS_ROLE_ARN`, BE `AWS_CI_ROLE_ARN_API`, AI `AWS_CI_ROLE_ARN` (`gh variable set`). AI workflow에는 수동 실행이 없어 main의 마지막 실행을 다시 돌렸다.
+- 첫 실행은 셋 다 `Not authorized to perform sts:AssumeRoleWithWebIdentity`. nerd-nam 저장소는 GitHub **immutable subject**(`repo:nerd-nam@345653190/FE-nerdnam@1427904148:ref:refs/heads/main`)를 써서 trust의 sub가 맞지 않았다. ID가 들어간 형식으로 바꿨다(`836ebbe`). 확인: `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`.
+- 이미지(ECR digest는 workflow 로그의 push 결과에서 가져왔다. `nerdnam-infra`에는 ECR 읽기 권한이 없다): web FE `61bb21b`, api BE `4debdaa`, ai AI `d20b9dd` (`3727e43`).
+- **관리 IP가 바뀌어 EKS API가 끊겼다**(`58.235.174.53` → `.52`, 통신사가 두 주소를 오감). `eks_public_access_cidrs`에 둘 다 넣고 apply(1분 25초).
+  - 끊긴 동안 돌던 bootstrap apply가 실패하면서 **Terraform state에서 helm_release 2개가 빠졌다**(클러스터의 release는 그대로). 그 상태로 apply하면 Argo CD를 새로 설치하려다 `atomic=true` 때문에 기존 설치까지 지울 수 있다.
+  - 복구는 `terraform import helm_release.argocd argocd/argocd`, `terraform import helm_release.seed argocd/nerdnam-gitops-seed`. 다시 plan해 "2 to change"(import가 가져오지 않는 atomic·create_namespace)를 확인한 뒤 apply했다. Argo CD Pod는 재시작되지 않았다.
+  - **bootstrap plan이 "to add"를 보이면 apply하지 말고 state부터 확인한다.**
+- 결과: `nerdnam-apps` Synced·Healthy, web·api·ai 모두 app 노드에서 Running. 15개 Application 모두 Synced.
+  - Flyway V1~V8 성공(`app.flyway_schema_history`). BE readiness UP.
+  - AI `/readyz`에서 llm·embedding 모두 `ready`(Pod Identity → Bedrock 동작).
+  - 인증서 `nerdnam.click` 발급(staging).
+  - NLB IP로 `--resolve`: `/`·`/library` 200, `/api/auth/csrf` 200, `/api/projects` 401, `/actuator/health` 404(공개 안 됨), `/oauth2/authorization/google` 302. Google로 넘기는 `redirect_uri=https://nerdnam.click/login/oauth2/code/google`.
+  - 관측: Prometheus `api` 대상 up. Tempo에 web·api·ai trace가 있다. `web GET /library` trace 안에 api span이 있다(FE SSR → BE 전파 동작). web trace에 `/favicon.ico`가 많다(FE 정적 파일 제외 필요).
+- Kakao 키가 없어 BE는 기본값(`not-configured`)으로 떴다. Kakao 로그인만 안 된다.
