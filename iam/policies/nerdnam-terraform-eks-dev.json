@@ -179,6 +179,33 @@
       }
     },
     {
+      "Sid": "LaunchNodeGroupInstancesInSeoul",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "TagNodeGroupInstancesAtLaunch",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2",
+          "ec2:CreateAction": "RunInstances"
+        }
+      }
+    },
+    {
       "Sid": "ManageProjectRepositories",
       "Effect": "Allow",
       "Action": [
