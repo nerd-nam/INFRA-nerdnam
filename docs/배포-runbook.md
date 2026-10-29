@@ -82,7 +82,7 @@ Argo UI: `kubectl -n argocd port-forward svc/argocd-server 8080:443`. 초기 비
 
 ## 5. Argo 수동 sync 순서
 
-한 번에 하나씩 sync하고 확인한다. CRD·webhook이 준비되기 전에 그 CR을 쓰는 Application을 sync하지 않는다.
+한 번에 하나씩 sync하고 확인한다. CRD·webhook이 준비되기 전에 그 CR을 쓰는 Application을 sync하지 않는다. argocd CLI가 없으면 `scripts/argo-sync.sh <application>`(syncOptions를 함께 넘기고 끝날 때까지 기다림).
 
 | 순서 | Application | 확인 |
 | --- | --- | --- |
@@ -154,3 +154,22 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
 - 결과: 80개 생성 + OIDC 태그 1개 변경, 다시 plan하면 차이 없음. EKS 생성 7분 43초, 노드 그룹 1~2분.
 - 확인: 노드 3대 Ready(v1.35.9), workload 라벨·taint·AZ가 설계와 같음, kube-system의 aws-node·kube-proxy·coredns 2·ebs-csi controller 2/node 3·pod-identity-agent 모두 Running, Pod Identity association 8개(cert-manager, external-secrets, LBC, aws-node, ebs-csi, loki, tempo, ai).
 - 실제 Allocatable: m7i.xlarge 3920m / 14.37Gi / 58 Pod, m7i.large 1930m / 6.94Gi / 29 Pod. 검증 스크립트 추정값을 이에 맞췄다.
+
+### 2026-10-29 bootstrap·sync (4~5절)
+
+- 입력: `git_revision`(feat/vpc-network의 commit SHA, 바꿀 때마다 push 후 bootstrap apply), `app_hostname=nerdnam.click`, `sample_hostname=sample.nerdnam.click`, `acme_email=beabestdev@gmail.com`, **staging ACME**.
+- Secrets Manager: 4개 모두 값 있음. 클러스터로 복사된 키 이름 확인: data 6개·monitoring 2개·backend(Google 2개 + DB·Redis 3개). **Kakao 키 2개는 없음**(Kakao 로그인 불가, 나중에 넣으면 1시간 안에 반영). `ai`는 `{}`라 Secret이 만들어지지 않음(AI Pod는 쓰지 않음).
+- 순서대로 sync해 nerdnam-apps(이미지 digest 없음)를 뺀 14개가 Synced·Healthy.
+  - controller 3개: 모두 platform 노드, Pod Identity 오류 없음.
+  - Traefik: NLB 생성, HTTP 301(HTTPS로 넘김).
+  - foundation: ClusterIssuer(ACME 계정 등록)·ClusterSecretStore(검증됨) Ready.
+  - sample: staging 인증서가 DNS01(Route53, Pod Identity)로 바로 발급됐다. `--resolve`로 NLB IP에 HTTPS 200.
+  - kube-prometheus-stack: PVC 3개 gp3-retain Bound.
+  - Loki·Tempo·Alloy: 8개 namespace 로그가 Loki로 들어오고, 두 bucket에 객체가 생겼다(Pod Identity로 S3 쓰기).
+  - data: postgres-0·redis-0·exporter 2개, PVC 30Gi·5Gi Bound. 확장 vector 0.8.7·pg_trgm, 역할 3개, Redis `api` 로그인.
+  - observability: Prometheus 대상 모두 up(postgres·redis exporter 포함 = monitoring→data 통신 정책 동작), 울리는 알림은 Watchdog뿐.
+- 배포 중 찾아 고친 것:
+  1. 수동 sync 요청에 Application의 syncOptions가 안 들어가 namespace 미생성·ESO CRD annotation 크기 초과 → `scripts/argo-sync.sh`.
+  2. StatefulSet `volumeClaimTemplates`에 API 기본값(apiVersion·kind·volumeMode)이 없어 상시 OutOfSync → 템플릿에 명시.
+  3. LBC 차트가 렌더마다 새 webhook 인증서를 만들어 상시 OutOfSync → `enableCertManager: true`. cert-manager가 **같은 이름의 Secret**(`aws-load-balancer-tls`)에 새 인증서를 쓰므로, Argo가 "prune 대상"으로 보이는 그 Secret을 지우지 않고 Argo 추적 annotation만 지웠다. **이 Secret을 prune하면 LBC webhook이 깨진다.**
+- 남은 일: 앱 이미지(CI 변수·push) → `images.yaml` → `nerdnam-apps`, `nerdnam.click` A 레코드, staging → 운영 인증서 전환, Kakao 키.
