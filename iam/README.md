@@ -52,7 +52,7 @@ Launch Template 관리 작업은 서울 리전 전체 범위이며 기존 networ
 | DNS | 사용할 Route53 zone/record와 cert-manager 역할 |
 | DB 백업 | 사용자 요청으로 후속 보류. 현재 S3 백업 bucket/Job 권한을 추가하지 않음 |
 
-관리형 노드 그룹이 시작 템플릿을 쓰면 EKS가 **호출자 권한으로** 인스턴스를 띄운다. 그래서 EKS 실행자 정책에 `ec2:RunInstances`(서울)와 시작 때의 `ec2:CreateTags`가 필요하다. 2026-10-29 첫 apply에서 이 권한이 없어 노드 그룹 3개가 `You are not authorized to launch instances with this launch template`로 실패해 추가했다. 이어서 EKS가 노드 그룹 서비스 연결 역할(`AWSServiceRoleForAmazonEKSNodegroup`)이 있는지 `iam:GetRole`로 확인하는데 그 권한도 없어 실패했다. 서비스 연결 역할 3개에 `iam:GetRole`을 추가했다(생성 권한 `iam:CreateServiceLinkedRole`은 원래 있었다).
+관리형 노드 그룹이 시작 템플릿을 쓰면 EKS가 **호출자 권한으로** 인스턴스를 띄운다. 그래서 EKS 실행자 정책에 `ec2:RunInstances`(서울)와 시작 때의 `ec2:CreateTags`가 필요하다. 2026-10-29 첫 apply에서 이 권한이 없어 노드 그룹 3개가 `You are not authorized to launch instances with this launch template`로 실패해 추가했다. 이어서 EKS가 노드 그룹 서비스 연결 역할(`AWSServiceRoleForAmazonEKSNodegroup`)이 있는지 `iam:GetRole`로 확인하는데 그 권한도 없어 실패했다. 서비스 연결 역할 3개에 `iam:GetRole`을 추가했다(생성 권한 `iam:CreateServiceLinkedRole`은 원래 있었다). 처음엔 경로가 들어간 ARN(`role/aws-service-role/eks-nodegroup.amazonaws.com/…`)만 적었는데 `GetRole`이 계속 거부돼, 경로 없는 형식(`role/AWSServiceRoleForAmazonEKSNodegroup`)도 함께 적었다.
 
 workload 정책도 inline 정책 내용 자체를 제한하는 boundary가 아니다. 지정한 4개 역할에 어떤 inline 정책이든 넣을 수 있으므로 신뢰하는 인프라 운영자용이다. Pod Identity association 생성은 EKS 정책(`podidentityassociation/nerdnam-dev/*`)이 담당한다. Terraform 실행자의 역할 생성 권한과 실제 AI Pod의 Bedrock 호출 권한은 구분한다. 후자는 AI ServiceAccount 전용 역할에 부여한다. EKS 서비스 역할용 AWS 관리형 정책을 Terraform 사용자에게 붙이는 것으로 실행자 권한을 대체하지 않는다.
 

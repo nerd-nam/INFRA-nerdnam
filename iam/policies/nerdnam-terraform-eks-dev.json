@@ -168,9 +168,12 @@
         "iam:GetRole"
       ],
       "Resource": [
-        "arn:aws:iam::082139775699:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+        "arn:aws:iam::082139775699:role/AWSServiceRoleForAmazonEKS",
+        "arn:aws:iam::082139775699:role/AWSServiceRoleForAmazonEKSNodegroup",
+        "arn:aws:iam::082139775699:role/AWSServiceRoleForAutoScaling*",
+        "arn:aws:iam::082139775699:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling*",
         "arn:aws:iam::082139775699:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup",
-        "arn:aws:iam::082139775699:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling*"
+        "arn:aws:iam::082139775699:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS"
       ]
     },
     {
