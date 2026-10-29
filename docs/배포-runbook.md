@@ -188,4 +188,10 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
   - 인증서 `nerdnam.click` 발급(staging).
   - NLB IP로 `--resolve`: `/`·`/library` 200, `/api/auth/csrf` 200, `/api/projects` 401, `/actuator/health` 404(공개 안 됨), `/oauth2/authorization/google` 302. Google로 넘기는 `redirect_uri=https://nerdnam.click/login/oauth2/code/google`.
   - 관측: Prometheus `api` 대상 up. Tempo에 web·api·ai trace가 있다. `web GET /library` trace 안에 api span이 있다(FE SSR → BE 전파 동작). web trace에 `/favicon.ico`가 많다(FE 정적 파일 제외 필요).
-- Kakao 키가 없어 BE는 기본값(`not-configured`)으로 떴다. Kakao 로그인만 안 된다.
+- Kakao 키가 없어 BE는 기본값(`not-configured`)으로 떴다. Kakao 로그인만 안 된다(지금은 쓰지 않기로 함).
+
+### 2026-10-29 서비스 공개
+
+- 사용자가 Route53에 `nerdnam.click` A(별칭) → NLB를 만들었다. Google OAuth 콘솔에 redirect URI를 등록했다.
+- 운영 인증서로 전환: bootstrap `dev.tfvars`에서 `acme_server`(staging) 줄을 지움 → bootstrap apply(seed 1개 변경) → root·foundation sync(ClusterIssuer server가 운영 endpoint로 바뀌고 ACME 계정 등록) → 인증서 Secret 2개(`nerdnam-web-tls`, `gitops-sample-tls`)를 지워 다시 발급(1분 안).
+- `https://nerdnam.click`: Let's Encrypt `YR1`, 검증 통과, 만료 2027-01-27(cert-manager가 자동 갱신), HTTP/2 200. `sample.nerdnam.click`은 DNS 레코드가 없다(시험용이라 필요 없음).
