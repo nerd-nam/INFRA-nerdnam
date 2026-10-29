@@ -135,10 +135,14 @@ spec:
         - name: shm
           emptyDir: {medium: Memory, sizeLimit: {{ $pg.shmSize }}}
   volumeClaimTemplates:
-    - metadata:
+    # API 가 채우는 apiVersion·kind·volumeMode 를 적어 둔다. 빠지면 Argo 가 늘 OutOfSync 로 본다(2026-10-29 배포에서 확인).
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
         storageClassName: gp3-retain
         resources:
           requests:
