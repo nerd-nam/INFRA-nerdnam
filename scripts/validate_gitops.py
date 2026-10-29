@@ -249,7 +249,7 @@ def check_apps(local):
     root_apps = {x['metadata']['name']: x for x in local['root'] if x['kind'] == 'Application'}
     source = root_apps['nerdnam-apps']['spec']['source']
     assert source['path'] == 'gitops/apps' and source['helm']['valueFiles'] == APP_VALUE_FILES['apps']
-    # Git 의 images.yaml 만으로는(CI 가 digest 를 채우기 전) 렌더링이 실패해야 한다: 가짜 이미지 기본값 금지.
+    # Git 의 images.yaml 만으로는(첫 이미지 digest 를 넣기 전) 렌더링이 실패해야 한다: 가짜 이미지 기본값 금지.
     committed = yaml.safe_load((ROOT / 'gitops/apps/images.yaml').read_text())['images']
     assert set(committed) == {'web', 'api', 'ai'}
     for name, ref in committed.items():

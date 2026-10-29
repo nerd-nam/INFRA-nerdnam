@@ -187,7 +187,7 @@ FE / BE / AI 코드 PR
   → 해당 저장소 테스트
   → merge 후 이미지 빌드·검사
   → GitHub Actions OIDC로 ECR push
-  → INFRA에 image digest 변경 PR
+  → 운영자가 실행 요약의 digest로 INFRA image digest 변경 PR (앱 CI는 INFRA를 고치지 않는다, 2026-10-29 팀 결정)
   → PR merge
   → Argo CD가 감지하고 동기화
   → readiness·실제 기능·관측 데이터 검증
