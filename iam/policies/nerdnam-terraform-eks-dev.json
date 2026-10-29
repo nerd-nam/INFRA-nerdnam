@@ -162,6 +162,18 @@
       }
     },
     {
+      "Sid": "ReadRequiredServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/aws-service-role/eks.amazonaws.com/AWSServiceRoleForAmazonEKS",
+        "arn:aws:iam::082139775699:role/aws-service-role/eks-nodegroup.amazonaws.com/AWSServiceRoleForAmazonEKSNodegroup",
+        "arn:aws:iam::082139775699:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling*"
+      ]
+    },
+    {
       "Sid": "ManageLaunchTemplatesInSeoul",
       "Effect": "Allow",
       "Action": [
