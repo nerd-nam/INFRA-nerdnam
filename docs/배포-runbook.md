@@ -132,7 +132,7 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
 | 설정(차트) 문제 | Git revert → 해당 Application sync. 자동 prune이 없어 지운 리소스는 남는다(직접 확인 후 삭제) |
 | controller upgrade 문제 | `root/values.yaml`·`charts.lock.json`의 이전 버전으로 revert |
 | 데이터 | **백업이 아직 없다**(보류). PVC·StatefulSet 삭제, 파괴적 migration을 하지 않는다. PVC는 Retain이라 Application을 지워도 남는다 |
-| 전체 철거 | Application 삭제 → bootstrap destroy → 루트 destroy. EBS(Retain PV)와 S3 bucket(Loki·Tempo)은 수동 삭제 대상으로 남는다 |
+| 전체 철거 | Application 삭제 → bootstrap destroy → 루트 destroy. EBS(Retain PV)와 S3 bucket(Loki·Tempo)은 수동 삭제 대상으로 남는다. **GitHub OIDC provider는 계정에 원래 있던 것을 import했다(2026-10-29).** 다른 저장소·프로젝트가 쓸 수 있으므로 destroy 전에 `terraform state rm module.workload.aws_iam_openid_connect_provider.github`로 관리에서 뺀다 |
 
 ## 8. 이후 배포 (앱 업데이트)
 

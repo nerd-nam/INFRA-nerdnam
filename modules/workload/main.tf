@@ -134,7 +134,8 @@ data "aws_iam_policy_document" "ci_trust" {
 }
 
 data "aws_iam_policy_document" "ci_push" {
-  for_each = var.ecr_repository_arns
+  # 키는 고정값(github_repositories)으로 정한다. ARN 지도는 ECR 이 만들어진 뒤에야 알려져 for_each 에 쓸 수 없다.
+  for_each = var.github_repositories
   statement {
     sid       = "EcrLogin"
     actions   = ["ecr:GetAuthorizationToken"]
@@ -151,7 +152,7 @@ data "aws_iam_policy_document" "ci_push" {
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
-    resources = [each.value]
+    resources = [var.ecr_repository_arns[each.key]]
   }
 }
 
