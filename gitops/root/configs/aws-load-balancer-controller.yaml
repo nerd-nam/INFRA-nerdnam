@@ -13,6 +13,10 @@ tolerations:
     value: platform
     effect: NoSchedule
 enableServiceMutatorWebhook: false
+# webhook 인증서를 cert-manager 가 발급한다. 끄면 차트가 렌더할 때마다 새 자체 서명 인증서를 만들어
+# Argo 가 늘 OutOfSync 로 보고 sync 마다 인증서가 바뀐다(2026-10-29 배포에서 확인). keepTLSSecret 은 Helm lookup 이
+# 필요해 Argo 에서 동작하지 않는다. 그래서 첫 배포 때 cert-manager 를 LBC 보다 먼저 sync 한다(runbook 5절).
+enableCertManager: true
 resources:
   requests:
     cpu: 100m

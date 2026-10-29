@@ -157,6 +157,10 @@ def main():
                            for t in pod.get('tolerations', [])), f'{chart}: missing toleration'
             scheduled += 1
 
+    # LBC webhook 인증서는 cert-manager 가 발급한다. 차트가 직접 만들면 렌더마다 값이 바뀌어 Argo 가 늘 OutOfSync 다.
+    lbc_docs = upstream['aws-load-balancer-controller']
+    assert not any(x['kind'] == 'Secret' for x in lbc_docs), 'LBC must not render its own TLS secret (use enableCertManager)'
+    assert any(x['kind'] == 'Certificate' for x in lbc_docs), 'LBC webhook certificate comes from cert-manager'
     obs_count = check_observability(local, upstream)
 
     by_kind = {doc['kind']: doc for doc in local['sample']}

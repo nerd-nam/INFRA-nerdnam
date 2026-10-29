@@ -86,7 +86,7 @@ Argo UI: `kubectl -n argocd port-forward svc/argocd-server 8080:443`. 초기 비
 
 | 순서 | Application | 확인 |
 | --- | --- | --- |
-| 1 | `aws-load-balancer-controller`, `cert-manager`, `external-secrets` | `kubectl get pods -A -l app.kubernetes.io/instance in (...)` Ready, webhook Service endpoint 있음 |
+| 1 | `cert-manager`, `external-secrets` → 그다음 `aws-load-balancer-controller` | Pod Ready, webhook Service endpoint 있음. LBC는 webhook 인증서를 cert-manager로 받으므로 cert-manager가 Ready인 뒤에 sync한다 |
 | 2 | `traefik` | NLB 생성(`kubectl -n traefik get svc` EXTERNAL-IP), 대상 그룹 healthy |
 | 3 | `nerdnam-foundation` | StorageClass `gp3-retain`, ClusterIssuer Ready, ClusterSecretStore `Valid`, namespace 3개 + NetworkPolicy |
 | 4 | `nerdnam-secrets` | `kubectl get externalsecret -A` 모두 `SecretSynced` |
