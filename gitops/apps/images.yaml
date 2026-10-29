@@ -2,6 +2,6 @@
 # 형식: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/<web|api|ai>@sha256:<64자리>
 # 비어 있으면 렌더링이 실패한다(첫 이미지가 push 되기 전에는 nerdnam-apps 를 sync 하지 않는다).
 images:
-  web: ""
-  api: ""
-  ai: ""
+  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:88fdd3d516be849e1c3d442f9a2a12210c76b435918ecd3bbe29ad573d240120  # FE 61bb21b (2026-10-29)
+  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:283f41a4d79e5780ea896c9292e717033cde73683b534a51236c4b67c8b2e510  # BE 4debdaa (2026-10-29)
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:fa6482dbd8bb52d6d261fa87519e04958a021516534411f50acac5f235308a1c  # AI d20b9dd (2026-10-29)
