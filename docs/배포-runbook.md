@@ -195,3 +195,10 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
 - 사용자가 Route53에 `nerdnam.click` A(별칭) → NLB를 만들었다. Google OAuth 콘솔에 redirect URI를 등록했다.
 - 운영 인증서로 전환: bootstrap `dev.tfvars`에서 `acme_server`(staging) 줄을 지움 → bootstrap apply(seed 1개 변경) → root·foundation sync(ClusterIssuer server가 운영 endpoint로 바뀌고 ACME 계정 등록) → 인증서 Secret 2개(`nerdnam-web-tls`, `gitops-sample-tls`)를 지워 다시 발급(1분 안).
 - `https://nerdnam.click`: Let's Encrypt `YR1`, 검증 통과, 만료 2027-01-27(cert-manager가 자동 갱신), HTTP/2 200. `sample.nerdnam.click`은 DNS 레코드가 없다(시험용이라 필요 없음).
+
+### 2026-10-30 앱 업데이트 (8절)
+
+- 다시 올린 직후 배포. 진행 중 AI 작업 0개를 확인하고 bootstrap `git_revision`을 `ef82f37`로(seed 1개 변경) → root sync → `nerdnam-apps`·`nerdnam-observability` sync.
+- web FE `48b607c`(`c4b471a6…`), api BE `994fd6f`(`bdc02631…`). web probe가 `/healthz`, 공개 경로 `/`·`/library`·`/healthz`·`/api/auth/csrf` 200.
+- p95: 구간 지표 수집 확인, 전체 p95 약 0.1초. 알림 `NerdnamApiLatencyHigh` 로드됨.
+- 추적(FE#11): 새 web Pod 이후 `/healthz` probe trace 0건(몇 분 동안). `/library` 요청 31개가 31개 trace로, 각 trace에 BE 호출마다 client span 하나(`fetch GET /api/me` 등)와 BE server span. `favicon` trace는 Pod 시작 순간 1건뿐.
