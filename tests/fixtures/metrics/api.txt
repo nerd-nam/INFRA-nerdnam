@@ -1,4 +1,4 @@
-# 실제로 수집한 지표 이름: BE 4debdaa /actuator/prometheus (MANAGEMENT_PORT=8081, 2026-10-29)
+# 실제로 수집한 지표 이름: BE 994fd6f /actuator/prometheus (MANAGEMENT_PORT=8081, 응답 시간 구간 0.1·0.3·1·3·10초, 2026-10-30)
 # 대시보드·알림 규칙이 쓰는 지표 이름을 검증 스크립트가 이 목록과 대조한다. 앱·이미지를 바꾸면 다시 수집한다(docs/운영-검증-작업계획.md).
 application_ready_time_seconds
 application_started_time_seconds
@@ -27,9 +27,11 @@ hikaricp_connections_timeout_total
 hikaricp_connections_usage_seconds_count
 hikaricp_connections_usage_seconds_max
 hikaricp_connections_usage_seconds_sum
-http_server_requests_active_seconds_count
+http_server_requests_active_seconds_bucket
+http_server_requests_active_seconds_gcount
+http_server_requests_active_seconds_gsum
 http_server_requests_active_seconds_max
-http_server_requests_active_seconds_sum
+http_server_requests_seconds_bucket
 http_server_requests_seconds_count
 http_server_requests_seconds_max
 http_server_requests_seconds_sum
@@ -44,9 +46,6 @@ jvm_classes_loaded_classes
 jvm_classes_loaded_count_classes_total
 jvm_classes_unloaded_classes_total
 jvm_compilation_time_ms_total
-jvm_gc_concurrent_phase_time_seconds_count
-jvm_gc_concurrent_phase_time_seconds_max
-jvm_gc_concurrent_phase_time_seconds_sum
 jvm_gc_live_data_size_bytes
 jvm_gc_max_data_size_bytes
 jvm_gc_memory_allocated_bytes_total

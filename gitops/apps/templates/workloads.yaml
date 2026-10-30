@@ -55,12 +55,16 @@ spec:
             {{- include "apps.otelEnv" (dict "root" $ "name" "web") | nindent 12 }}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $web.resources | nindent 12 }}
+          # FE 상태 확인 전용 경로(FE #11): 화면을 그리지 않고 BE 도 부르지 않으며 trace 도 남기지 않는다.
+          # 예전엔 /favicon.ico 를 썼는데 10초마다 trace 가 쌓였다. liveness 도 같은 경로로 서버가 멈춘 것까지 잡는다.
           readinessProbe:
-            httpGet: {path: /favicon.ico, port: http}
+            httpGet: {path: /healthz, port: http}
             periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
-            tcpSocket: {port: http}
+            httpGet: {path: /healthz, port: http}
             periodSeconds: 20
+            timeoutSeconds: 3
             failureThreshold: 3
           lifecycle:
             preStop: {sleep: {seconds: 5}}   # Service endpoint 에서 빠질 시간

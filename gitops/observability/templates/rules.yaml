@@ -14,6 +14,15 @@ spec:
           labels: {severity: critical}
           annotations:
             summary: BE 지표를 5분 동안 수집하지 못했다
+        # 응답 시간 구간(BE #54) 기준. AI 작업은 비동기라 HTTP 응답 시간에 들어가지 않는다. 요청이 거의 없을 때 튀지 않게 초당 0.1건 이상일 때만
+        - alert: NerdnamApiLatencyHigh
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace="nerdnam", job="api", uri!~"/actuator.*"}[5m]))) > 3
+            and sum(rate(http_server_requests_seconds_count{namespace="nerdnam", job="api", uri!~"/actuator.*"}[5m])) > 0.1
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: BE 응답 시간 p95 가 3초를 넘는 상태가 10분째다 (DB·Redis·노드 자원 확인)
         - alert: NerdnamAiJobFailures
           expr: max(nerdnam_aijob_failed_recent) > 3
           for: 10m

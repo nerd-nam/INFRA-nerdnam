@@ -311,6 +311,10 @@ def check_apps(local):
     assert api_container['startupProbe']['httpGet'] == {'path': '/actuator/health/liveness', 'port': 'management'}
     assert api_container['readinessProbe']['httpGet'] == {'path': '/actuator/health/readiness', 'port': 'management'}
     assert {'name': 'management', 'port': management, 'targetPort': 'management'} in services['api']['spec']['ports']
+    # web probe 는 FE 상태 확인 전용 경로(FE #11). 화면 경로를 쓰면 probe 마다 SSR·BE 호출·trace 가 생긴다.
+    web_container = deployments['web']['spec']['template']['spec']['containers'][0]
+    assert web_container['readinessProbe']['httpGet'] == {'path': '/healthz', 'port': 'http'}
+    assert web_container['livenessProbe']['httpGet'] == {'path': '/healthz', 'port': 'http'}
     ai_container = deployments['ai']['spec']['template']['spec']['containers'][0]
     assert ai_container['livenessProbe']['httpGet']['path'] == '/livez' and ai_container['readinessProbe']['httpGet']['path'] == '/readyz'
     # AI 이미지의 uvicorn 종료 대기(300초)보다 종료 유예가 길어야 진행 중 요청을 끝낸다(AI #34).
