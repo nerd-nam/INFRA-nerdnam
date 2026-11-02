@@ -92,7 +92,11 @@ jobs:
           TFVARS: ${{ secrets.EKS_DEV_TFVARS }}
         run: |
           [ -n "$TFVARS" ] || { echo "::error::저장소 secret EKS_DEV_TFVARS 가 없습니다(docs/Terraform-CI.md)"; exit 1; }
-          printf '%s\n' "$TFVARS" > eks.dev.tfvars
+          # 한 줄(base64)로 넣는다. 여러 줄 secret 은 GitHub 이 줄마다 가려서 로그의 '}' 같은 글자까지 *** 로 바뀐다.
+          if ! printf '%s' "$TFVARS" | base64 -d > eks.dev.tfvars 2>/dev/null; then
+            echo "::warning::EKS_DEV_TFVARS 가 base64 가 아닙니다. 그대로 씁니다. base64 한 줄로 다시 넣으세요(docs/Terraform-CI.md)."
+            printf '%s\n' "$TFVARS" > eks.dev.tfvars
+          fi
       # 노드 켜고 끄기는 scripts/cluster.sh 가 한다. 지금 노드 수를 그대로 넘겨 plan 이 노드를 바꾸지 않게 한다.
       - name: 지금 노드 수
         id: nodes
@@ -177,7 +181,7 @@ jobs:
       - name: 입력 파일(eks.dev.tfvars) 만들기
         env:
           TFVARS: ${{ secrets.EKS_DEV_TFVARS }}
-        run: printf '%s\n' "$TFVARS" > eks.dev.tfvars
+        run: printf '%s' "$TFVARS" | base64 -d > eks.dev.tfvars 2>/dev/null || printf '%s\n' "$TFVARS" > eks.dev.tfvars
       - name: 다시 plan → 승인한 요약과 같은지 확인
         env:
           NODE_COUNT: ${{ needs.plan.outputs.node_count }}

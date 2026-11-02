@@ -123,7 +123,13 @@ elif [ "$YES" != 1 ]; then
 fi
 
 log "4. apply"
-terraform apply -input=false -no-color "$PLAN" | grep -E '^(Apply complete|Error)' || true
+APPLY_LOG=$(mktemp -t "nerdnam-$TARGET-apply")
+if ! terraform apply -input=false -no-color "$PLAN" > "$APPLY_LOG" 2>&1; then
+  grep -E '^(Error|  with|  on) ' "$APPLY_LOG" | head -40
+  rm -f "$APPLY_LOG"
+  die "apply 가 실패했습니다. 위 오류를 확인하세요. 실패 전에 만들어진 리소스는 state 에 남아 있습니다(다시 실행하면 나머지만 적용)."
+fi
+grep -E '^Apply complete' "$APPLY_LOG"; rm -f "$APPLY_LOG"
 
 log "5. 적용 뒤 남은 변경 확인"
 set +e
