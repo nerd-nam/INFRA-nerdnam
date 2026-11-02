@@ -1,0 +1,201 @@
+{{- $web := .Values.web }}
+{{- $api := .Values.api }}
+{{- $ai := .Values.ai }}
+{{- range $name := list "web" "api" "ai" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: nerdnam
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: nerdnam
+  labels: {app.kubernetes.io/name: {{ $name }}}
+spec:
+  type: ClusterIP
+  selector: {app: {{ $name }}}
+  ports:
+    - {name: http, port: {{ (index $.Values $name).port }}, targetPort: http}
+    {{- with (index $.Values $name).managementPort }}
+    - {name: management, port: {{ . }}, targetPort: management}
+    {{- end }}
+{{- end }}
+---
+# FE: Next.js standalone. 이미지 빌드 때 API_ORIGIN=http://api.nerdnam.svc.cluster.local:8080 이어야 한다(rewrites 가 빌드 때 정해짐).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      serviceAccountName: web
+      terminationGracePeriodSeconds: 30
+      {{- include "apps.podSecurity" (dict "root" $ "app" $web) | nindent 6 }}
+      containers:
+        - name: web
+          image: {{ include "apps.image" (dict "root" $ "name" "web") | quote }}
+          ports: [{name: http, containerPort: {{ $web.port }}}]
+          env:
+            - {name: API_ORIGIN, value: "http://api.nerdnam.svc.cluster.local:{{ $api.port }}"}
+            {{- include "apps.otelEnv" (dict "root" $ "name" "web") | nindent 12 }}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $web.resources | nindent 12 }}
+          # FE 상태 확인 전용 경로(FE #11): 화면을 그리지 않고 BE 도 부르지 않으며 trace 도 남기지 않는다.
+          # 예전엔 /favicon.ico 를 썼는데 10초마다 trace 가 쌓였다. liveness 도 같은 경로로 서버가 멈춘 것까지 잡는다.
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: {sleep: {seconds: 5}}   # Service endpoint 에서 빠질 시간
+          volumeMounts:
+            - {name: cache, mountPath: /app/.next/cache}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: cache
+          emptyDir: {sizeLimit: 256Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+    spec:
+      serviceAccountName: api
+      terminationGracePeriodSeconds: {{ $api.terminationGracePeriodSeconds }}
+      {{- include "apps.podSecurity" (dict "root" $ "app" $api) | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "apps.image" (dict "root" $ "name" "api") | quote }}
+          # actuator(probe·지표·작업 비우기)는 관리 포트에만 있다(BE #42·#44). Ingress 에는 넣지 않는다.
+          ports:
+            - {name: http, containerPort: {{ $api.port }}}
+            - {name: management, containerPort: {{ $api.managementPort }}}
+          # 비밀값: backend-secrets (OAuth 키 + data 비밀값에서 온 DB·Redis 비밀번호, gitops/secrets)
+          envFrom:
+            - secretRef: {name: backend-secrets}
+          env:
+            - {name: SPRING_PROFILES_ACTIVE, value: {{ $api.profile | quote }}}
+            - {name: JAVA_TOOL_OPTIONS, value: {{ $api.javaOptions | quote }}}
+            - {name: MANAGEMENT_PORT, value: {{ $api.managementPort | quote }}}
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres.data.svc.cluster.local:5432/nerdnam"}
+            - {name: SPRING_DATASOURCE_USERNAME, value: nerdnam_app}
+            - {name: SPRING_FLYWAY_USER, value: nerdnam_migrator}
+            - {name: REDIS_HOST, value: redis.data.svc.cluster.local}
+            - {name: REDIS_PORT, value: "6379"}
+            - {name: SPRING_DATA_REDIS_USERNAME, value: api}
+            # Traefik 이 TLS 를 끝내고 X-Forwarded-* 를 붙인다. OAuth 콜백 주소·Secure 쿠키가 https 로 정해진다.
+            - {name: SERVER_FORWARD_HEADERS_STRATEGY, value: native}
+            - {name: SERVER_SERVLET_SESSION_COOKIE_SECURE, value: "true"}
+            - {name: NERDNAM_AUTH_MODE, value: session}
+            - {name: NERDNAM_AUTH_WEB_ORIGIN, value: {{ include "apps.publicOrigin" $ | quote }}}
+            - {name: NERDNAM_AUTH_LOGIN_SUCCESS_URL, value: "{{ include "apps.publicOrigin" $ }}/"}
+            - {name: NERDNAM_AUTH_LOGIN_FAILURE_URL, value: "{{ include "apps.publicOrigin" $ }}/?login=failed"}
+            - {name: NERDNAM_AI_STUB, value: "false"}
+            - {name: NERDNAM_AI_BASE_URL, value: "http://ai.nerdnam.svc.cluster.local:{{ $ai.port }}"}
+            {{- include "apps.otelEnv" (dict "root" $ "name" "api") | nindent 12 }}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $api.resources | nindent 12 }}
+          # liveness = 프로세스만(livenessState), readiness = readinessState + db + redis (BE #42).
+          # 작업 비우기(drain) 중에는 readiness 가 REFUSING_TRAFFIC 이 되어 Service 에서 빠진다(BE #45).
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: management}
+            periodSeconds: 5
+            failureThreshold: 60    # Flyway migration 포함 최대 5분
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: management}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: management}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai
+  namespace: nerdnam
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: ai}
+  template:
+    metadata:
+      labels: {app: ai}
+    spec:
+      # EKS Pod Identity(modules/workload)가 nerdnam/ai ServiceAccount 에 Bedrock 역할을 준다.
+      # Bedrock API 키(AWS_BEARER_TOKEN_BEDROCK)·정적 AWS 키는 넣지 않는다.
+      serviceAccountName: ai
+      terminationGracePeriodSeconds: {{ $ai.terminationGracePeriodSeconds }}
+      {{- include "apps.podSecurity" (dict "root" $ "app" $ai) | nindent 6 }}
+      containers:
+        - name: ai
+          image: {{ include "apps.image" (dict "root" $ "name" "ai") | quote }}
+          ports: [{name: http, containerPort: {{ $ai.port }}}]
+          env:
+            - {name: AI_MODE, value: real}
+            - {name: AWS_REGION, value: {{ required "environment.region is required" $.Values.environment.region | quote }}}
+            - {name: LLM_MODEL, value: {{ $ai.llmModel | quote }}}
+            - {name: EMBED_MODEL_ID, value: {{ $ai.embedModel | quote }}}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}   # 노드 역할로 넘어가지 않게
+            {{- include "apps.otelEnv" (dict "root" $ "name" "ai") | nindent 12 }}
+          securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
+          resources: {{ toYaml $ai.resources | nindent 12 }}
+          # /livez = 프로세스, /readyz = 첫 연결 확인이 끝났고 LLM·임베딩 중 하나라도 쓸 수 있음 (AI #35).
+          # 둘 다 Bedrock 을 부르지 않고 저장된 상태만 읽는다. 시작 직후 연결 확인(유료 짧은 호출)이 끝나야 Ready.
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /livez, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop: {sleep: {seconds: 5}}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}

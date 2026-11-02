@@ -1,0 +1,58 @@
+{{- /*
+관리 도구(Grafana·Argo CD)를 서브도메인으로 연다. 관리 IP(EKS API 허용 목록과 같은 값)에서 온 요청만 통과하고,
+나머지는 Traefik 이 403 으로 막는다. 실제 사용자 IP 는 NLB Proxy Protocol v2 로 Traefik 에 전달된다(configs/traefik.yaml).
+로그인은 각 도구의 계정을 그대로 쓴다.
+*/ -}}
+{{- $cidrs := required "environment.adminAllowCidrs is required" .Values.environment.adminAllowCidrs }}
+{{- $tools := list
+  (dict "name" "grafana" "namespace" "monitoring" "host" (required "environment.grafanaHostname is required" .Values.environment.grafanaHostname) "service" "grafana")
+  (dict "name" "argocd" "namespace" "argocd" "host" (required "environment.argocdHostname is required" .Values.environment.argocdHostname) "service" "argocd-server") }}
+{{- range $tools }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: admin-allowlist
+  namespace: {{ .namespace }}
+spec:
+  ipAllowList:
+    sourceRange: {{ $cidrs | toJson }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .name }}-admin
+  namespace: {{ .namespace }}
+spec:
+  secretName: {{ .name }}-admin-tls
+  dnsNames: [{{ .host | quote }}]
+  issuerRef:
+    name: nerdnam-acme
+    kind: ClusterIssuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .name }}-admin
+  namespace: {{ .namespace }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ .namespace }}-admin-allowlist@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [{{ .host | quote }}]
+      secretName: {{ .name }}-admin-tls
+  rules:
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: 80
+{{- end }}

@@ -1,0 +1,65 @@
+{{- /* 7단계: Loki 한 개(SingleBinary). chunk·index 는 S3(modules/observability), WAL 은 PVC. */}}
+{{- $platform := dict "nodeSelector" (dict "workload" "platform") "tolerations" (list (dict "key" "dedicated" "operator" "Equal" "value" "platform" "effect" "NoSchedule")) }}
+{{- $bucket := required "environment.lokiBucket is required" .Values.environment.lokiBucket }}
+deploymentMode: SingleBinary
+fullnameOverride: loki
+# Pod Identity(monitoring/loki → nerdnam-dev-loki 역할). 정적 키를 넣지 않는다.
+serviceAccount:
+  create: true
+  name: loki
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  schemaConfig:
+    configs:
+      - from: "2026-10-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index: {prefix: loki_index_, period: 24h}
+  storage:
+    type: s3
+    bucketNames:
+      chunks: {{ $bucket | quote }}
+      ruler: {{ $bucket | quote }}
+      admin: {{ $bucket | quote }}
+    s3:
+      region: {{ required "environment.region is required" .Values.environment.region | quote }}
+  limits_config:
+    retention_period: 168h          # 7일. S3 lifecycle(28일)은 이보다 길게 둔 안전망이다
+    ingestion_rate_mb: 4
+    ingestion_burst_size_mb: 8
+    max_label_names_per_series: 15
+    volume_enabled: true
+  compactor:
+    retention_enabled: true
+    delete_request_store: s3
+  pattern_ingester:
+    enabled: false
+  ruler:
+    enable_api: false
+singleBinary:
+  replicas: 1
+  {{- toYaml $platform | nindent 2 }}
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: gp3-retain
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 1536Mi}
+# SimpleScalable 구성요소·캐시·gateway·canary·시험 Pod 는 쓰지 않는다
+read: {replicas: 0}
+write: {replicas: 0}
+backend: {replicas: 0}
+gateway: {enabled: false}
+chunksCache: {enabled: false}
+resultsCache: {enabled: false}
+lokiCanary: {enabled: false}
+test: {enabled: false}
+minio: {enabled: false}
+monitoring:
+  selfMonitoring: {enabled: false}
+  lokiCanary: {enabled: false}
+  serviceMonitor: {enabled: true}

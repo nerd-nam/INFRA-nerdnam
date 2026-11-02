@@ -1,0 +1,5 @@
+apiVersion: v2
+name: nerdnam-data
+description: PostgreSQL(pgvector)·Redis StatefulSet, PVC, 인증, 통신 정책
+version: 0.1.0
+type: application

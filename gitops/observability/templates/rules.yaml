@@ -1,0 +1,110 @@
+{{- /* 기본 규칙(노드·Pod·PVC 등)은 kube-prometheus-stack 이 넣는다. 여기는 nerdnam 고유 규칙만. */}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: nerdnam
+  namespace: monitoring
+spec:
+  groups:
+    - name: nerdnam.app
+      rules:
+        - alert: NerdnamApiDown
+          expr: up{namespace="nerdnam", job="api"} == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: BE 지표를 5분 동안 수집하지 못했다
+        # 응답 시간 구간(BE #54) 기준. AI 작업은 비동기라 HTTP 응답 시간에 들어가지 않는다. 요청이 거의 없을 때 튀지 않게 초당 0.1건 이상일 때만
+        - alert: NerdnamApiLatencyHigh
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{namespace="nerdnam", job="api", uri!~"/actuator.*"}[5m]))) > 3
+            and sum(rate(http_server_requests_seconds_count{namespace="nerdnam", job="api", uri!~"/actuator.*"}[5m])) > 0.1
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: BE 응답 시간 p95 가 3초를 넘는 상태가 10분째다 (DB·Redis·노드 자원 확인)
+        - alert: NerdnamAiDown
+          expr: up{namespace="nerdnam", job="ai"} == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: AI 서버 지표를 5분 동안 수집하지 못했다 (AI Pod·NetworkPolicy 확인)
+        # AI #44 지표. 호출이 드물 때 1~2건 실패로 울리지 않게 10분에 5건 이상일 때만
+        - alert: NerdnamBedrockErrorsHigh
+          expr: |
+            sum(rate(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai", result!="ok"}[10m]))
+              / sum(rate(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai"}[10m])) > 0.2
+            and sum(increase(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai"}[10m])) >= 5
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: Bedrock 호출 실패(throttle·timeout·error)가 20% 를 넘는 상태가 10분째다 (모델 접근 권한·한도·리전 상태 확인)
+        - alert: NerdnamBedrockQueueRejected
+          expr: sum(increase(nerdnam_ai_bedrock_queue_rejected_total{namespace="nerdnam", job="ai"}[10m])) > 0
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: AI 서버가 최근 10분 안에 대기열이 차서 요청을 503 으로 거절했다 (동시 호출 상한·Bedrock 응답 시간 확인)
+        - alert: NerdnamAiJobFailures
+          expr: max(nerdnam_aijob_failed_recent) > 3
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: 최근 5분 AI 작업 실패가 3건을 넘는 상태가 10분째다 (Bedrock 한도·AI 서버 상태 확인)
+        - alert: NerdnamAiJobQueueBacklog
+          expr: max(nerdnam_aijob_queue_size) > 50
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: AI 작업 큐가 50건을 넘게 밀려 있다 (stale-after 20분 전에 처리되지 못할 수 있다)
+        - alert: NerdnamEmbeddingStuck
+          expr: max(nerdnam_chunk_pending_oldest_seconds) > 1800
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: 30분 넘게 임베딩을 기다리는 청크가 있다 (검색 근거가 비어 판정이 미충족이 된다)
+    - name: nerdnam.data
+      rules:
+        - alert: NerdnamPostgresDown
+          expr: max(pg_up) == 0 or absent(pg_up)
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: PostgreSQL 에 접속할 수 없다
+        - alert: NerdnamPostgresConnectionsHigh
+          expr: sum(pg_stat_activity_count) / max(pg_settings_max_connections) > 0.8
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: PostgreSQL 연결이 max_connections 의 80% 를 넘었다
+        - alert: NerdnamRedisDown
+          expr: max(redis_up) == 0 or absent(redis_up)
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: Redis 에 접속할 수 없다 (로그인 세션)
+        - alert: NerdnamRedisMemoryHigh
+          expr: max(redis_memory_used_bytes / redis_memory_max_bytes) > 0.8
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: Redis 메모리가 maxmemory 의 80% 를 넘었다 (noeviction 이라 꽉 차면 세션 쓰기가 실패한다)
+        - alert: NerdnamRedisRejectingWrites
+          expr: increase(redis_errors_total{err="OOM"}[5m]) > 0
+          labels: {severity: critical}
+          annotations:
+            summary: Redis 가 maxmemory 에 걸려 쓰기를 거부했다
+        - alert: NerdnamRedisAofWriteFailed
+          expr: max(redis_aof_last_write_status) == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: Redis AOF 쓰기가 실패하고 있다 (세션이 디스크에 남지 않는다)
+    - name: nerdnam.logs
+      rules:
+        - alert: NerdnamLokiDown
+          expr: up{namespace="monitoring", job=~"loki.*"} == 0
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: Loki 지표를 10분 동안 수집하지 못했다 (로그가 저장되지 않을 수 있다)

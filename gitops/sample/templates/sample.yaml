@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitops-sample
+  namespace: nerdnam
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: gitops-sample}
+  template:
+    metadata:
+      labels: {app: gitops-sample}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {workload: app}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: whoami
+          image: traefik/whoami:v1.11.0
+          args: ["--port=8080"]
+          ports: [{name: http, containerPort: 8080}]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 128Mi}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          livenessProbe:
+            httpGet: {path: /, port: http}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitops-sample
+  namespace: nerdnam
+spec:
+  selector: {app: gitops-sample}
+  ports: [{port: 80, targetPort: http}]
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gitops-sample
+  namespace: nerdnam
+spec:
+  secretName: gitops-sample-tls
+  dnsNames: [{{ required "environment.hostname is required" .Values.environment.hostname | quote }}]
+  issuerRef:
+    name: nerdnam-acme
+    kind: ClusterIssuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitops-sample
+  namespace: nerdnam
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [{{ .Values.environment.hostname | quote }}]
+      secretName: gitops-sample-tls
+  rules:
+    - host: {{ .Values.environment.hostname | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gitops-sample
+                port: {number: 80}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-to-sample
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: gitops-sample}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports: [{protocol: TCP, port: 8080}]

@@ -1,0 +1,32 @@
+global:
+  nodeSelector:
+    workload: platform
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: platform
+      effect: NoSchedule
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  replicas: 0
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+repoServer:
+  replicas: 1
+controller:
+  replicas: 1
+redis:
+  enabled: true
+configs:
+  cm:
+    exec.enabled: false
+  params:
+    # HTTPS 는 Traefik 에서 끝낸다(argocd.<도메인>, 관리 IP 만 허용). Traefik → argocd-server 는 클러스터 안 HTTP.
+    server.insecure: true

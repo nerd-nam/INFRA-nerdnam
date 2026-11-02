@@ -1,0 +1,59 @@
+deployment:
+  replicas: 1
+nodeSelector:
+  workload: app
+providers:
+  # Middleware(관리 도구 IP 허용)만 쓴다. 읽는 namespace 를 관리 도구가 있는 곳으로 제한한다.
+  kubernetesCRD:
+    enabled: true
+    namespaces: [argocd, monitoring]
+  kubernetesIngress:
+    enabled: true
+    publishedService:
+      enabled: true
+ingressClass:
+  enabled: true
+  name: traefik
+  isDefaultClass: false
+service:
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-subnets: {{ required "environment.publicSubnetIds is required" .Values.environment.publicSubnetIds | join "," | quote }}
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: TCP
+    # 실제 사용자 IP 를 Proxy Protocol v2 헤더로 넘긴다(관리 도구 IP 허용·접근 로그에 쓴다). NLB 보안 그룹 규칙은 그대로다.
+    service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+  spec:
+    type: LoadBalancer
+    loadBalancerClass: service.k8s.aws/nlb
+    allocateLoadBalancerNodePorts: false
+ports:
+  web:
+    proxyProtocol:
+      trustedIPs: {{ required "environment.nlbSourceCidrs is required" .Values.environment.nlbSourceCidrs | toJson }}
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    proxyProtocol:
+      trustedIPs: {{ .Values.environment.nlbSourceCidrs | toJson }}
+    http:
+      tls:
+        enabled: true
+accessLog:
+  enabled: true
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+    queryParameters:
+      defaultMode: drop
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
