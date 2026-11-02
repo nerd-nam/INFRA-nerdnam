@@ -15,7 +15,7 @@ spec:
     - https://grafana.github.io/helm-charts
     - https://grafana-community.github.io/helm-charts
   destinations:
-    {{- range list "argocd" "kube-system" "traefik" "cert-manager" "external-secrets" "nerdnam" "data" "monitoring" }}
+    {{- range list "argocd" "kube-system" "traefik" "cert-manager" "external-secrets" "nerdnam" "data" "monitoring" "k6-operator" "load-test" }}
     - namespace: {{ . }}
       server: https://kubernetes.default.svc
     {{- end }}

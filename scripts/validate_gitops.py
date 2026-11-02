@@ -24,7 +24,7 @@ class Loader(yaml.SafeLoader):
 
 
 Loader.add_constructor('tag:yaml.org,2002:value', lambda loader, node: loader.construct_scalar(node))
-LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'apps', 'observability', 'sample']
+LOCAL_CHARTS = ['seed', 'root', 'foundation', 'secrets', 'data', 'apps', 'observability', 'load', 'sample']
 APP_VALUE_FILES = {'apps': ['images.yaml']}
 # Kubernetes 1.35 공식 OpenAPI. 자체 chart 의 기본 객체(Deployment 등)를 모르는 필드·형식 오류까지 엄격히 검사한다.
 K8S_OPENAPI = {
@@ -163,6 +163,7 @@ def main():
     assert any(x['kind'] == 'Certificate' for x in lbc_docs), 'LBC webhook certificate comes from cert-manager'
     obs_count = check_observability(local, upstream)
     admin_count = check_admin_access(local, upstream)
+    testruns = check_load(local, upstream, schemas)
 
     by_kind = {doc['kind']: doc for doc in local['sample']}
     assert by_kind['Ingress']['spec']['tls'][0]['secretName'] == by_kind['Certificate']['spec']['secretName']
@@ -179,7 +180,7 @@ def main():
     # Missing environment values must fail; example fixtures must not become defaults.
     data_count = check_data_layer(local)
     app_count = check_apps(local)
-    capacity, _ = check_capacity(local, upstream)
+    capacity, _ = check_capacity(local, upstream, testruns)
     dashboard_count, query_count = check_queries(local)
 
     rejected = subprocess.run([args.helm, 'template', 'missing-values', str(ROOT / 'gitops/root')],
@@ -196,6 +197,8 @@ def main():
           'Loki on S3 via Pod Identity, least-privilege Alloy RBAC, ServiceMonitor<->Service<->NetworkPolicy match')
     print('PASS: tracing: apps OTEL env -> Alloy OTLP HTTP (egress policy) -> Tempo OTLP gRPC only, Tempo on S3 via Pod Identity, '
           'read-only root, Grafana Tempo<->Loki links')
+    print(f'PASS: load test ({len(testruns)} TestRuns, k6-operator CRD schema): platform placement, pinned images, script/env ConfigMaps, '
+          'Prometheus remote write receiver, namespace quota, Argo destinations')
     print(f'PASS: apps ({app_count} Deployments): digest-pinned ECR images, placement, pod security, probes, '
           'public routes, Bedrock identity and namespace traffic policies')
     print(f'PASS: queries ({dashboard_count} dashboards, {query_count} PromQL incl. alert rules): metric names exist '
@@ -609,6 +612,86 @@ def check_observability(local, upstream):
     return len(monitors)
 
 
+LOAD_NAMESPACE = 'load-test'
+
+
+def check_load(local, upstream, schemas):
+    """k6-operator 와 gitops/load/testruns 의 TestRun. TestRun 은 Argo 가 아니라 운영자가 kubectl create 로 만든다."""
+    def platform(pod, where):
+        assert pod.get('nodeSelector') == {'workload': 'platform'}, f'{where}: placement'
+        assert any(t.get('key') == 'dedicated' and t.get('value') == 'platform' and t.get('effect') == 'NoSchedule'
+                   for t in pod.get('tolerations', [])), f'{where}: toleration'
+
+    operator = upstream['k6-operator']
+    assert not any(x['kind'] == 'Namespace' for x in operator), 'namespace comes from Argo CreateNamespace'
+    (manager,) = [x for x in operator if x['kind'] == 'Deployment']
+    platform(manager['spec']['template']['spec'], 'k6-operator')
+    stack = upstream['kube-prometheus-stack']
+    prom = next(x for x in stack if x['kind'] == 'Prometheus')
+    assert prom['spec'].get('enableRemoteWriteReceiver') is True, 'k6 pushes results with Prometheus remote write'
+    ksm = next(x for x in stack if x['kind'] == 'Deployment' and 'kube-state-metrics' in x['metadata']['name'])
+    assert any('--metric-labels-allowlist=nodes=[workload]' in a for c in ksm['spec']['template']['spec']['containers'] for a in c.get('args', [])), \
+        'kube_node_labels{label_workload} for the load dashboard'
+
+    docs = {x['metadata']['name']: x for x in local['load']}
+    assert {x['metadata']['namespace'] for x in local['load']} == {LOAD_NAMESPACE}
+    scripts, env = docs['k6-scripts']['data'], docs['k6-env']['data']
+    assert env['BASE_URL'].startswith('https://') and env['K6_PROMETHEUS_RW_TREND_STATS']
+    write = re.fullmatch(r'http://([a-z0-9-]+)\.([a-z0-9-]+)\.svc\.cluster\.local:(\d+)/api/v1/write', env['K6_PROMETHEUS_RW_SERVER_URL'])
+    assert write, env['K6_PROMETHEUS_RW_SERVER_URL']
+    service = next((x for x in stack if x['kind'] == 'Service' and x['metadata']['name'] == write.group(1)), None)
+    assert service and write.group(2) == 'monitoring' and int(write.group(3)) in {p['port'] for p in service['spec']['ports']}, \
+        'k6 remote write URL must point at the Prometheus service'
+    assert service['spec']['selector'].get('app.kubernetes.io/name') == 'prometheus'
+
+    crd = schemas[('k6.io/v1alpha1', 'TestRun')]
+    runs = {}
+    for path in sorted((ROOT / 'gitops/load/testruns').glob('*.yaml')):
+        run = yaml.safe_load(path.read_text())
+        where = path.name
+        jsonschema.Draft7Validator(crd).validate(run)
+        assert run['kind'] == 'TestRun' and run['metadata']['namespace'] == LOAD_NAMESPACE, where
+        assert 'generateName' in run['metadata'] and 'name' not in run['metadata'], f'{where}: kubectl create makes a new run each time'
+        spec = run['spec']
+        assert spec['parallelism'] == 1, f'{where}: one runner (testid per runner)'
+        assert spec['script']['configMap']['name'] == 'k6-scripts' and spec['script']['configMap']['file'] in scripts, where
+        assert '--out experimental-prometheus-rw' in spec['arguments'], f'{where}: results to Prometheus'
+        for part in ('runner', 'initializer', 'starter'):
+            pod = spec[part]
+            platform(pod, f'{where} {part}')
+            assert '@sha256:' in pod['image'], f'{where} {part}: pin image digest'
+            assert quantity(pod['resources']['requests']['cpu']) > 0 and 'memory' in pod['resources']['limits'], f'{where} {part}: resources'
+        for part in ('runner', 'initializer'):
+            pod = spec[part]
+            assert pod['envFrom'] == [{'configMapRef': {'name': 'k6-env'}}], f'{where} {part}: env'
+        assert spec['runner']['env'] == spec['initializer']['env'], f'{where}: initializer computes VUs from the same env'
+        scenario = next(e['value'] for e in spec['runner']['env'] if e['name'] == 'SCENARIO')
+        assert scenario == path.stem and f"  {scenario}: " in scripts['nerdnam.js'], f'{where}: scenario'
+        session = next(e for e in spec['runner']['env'] if e['name'] == 'SESSION')
+        assert 'value' not in session and session['valueFrom']['secretKeyRef']['optional'] is True, f'{where}: SESSION only from a Secret'
+        runs[path.stem] = run
+    assert set(runs) == {'smoke', 'concurrency', 'rate'}
+
+    # 시험 하나가 뜨는 동안 Pod 전체(runner + initializer + starter)가 quota 안에 들어야 한다.
+    hard = docs['load-test']['spec']['hard']
+    for name, run in runs.items():
+        parts = [run['spec'][p]['resources'] for p in ('runner', 'initializer', 'starter')]
+        assert sum(quantity(r['requests']['cpu']) for r in parts) <= quantity(hard['requests.cpu']), name
+        assert sum(quantity(r['requests']['memory']) for r in parts) <= quantity(hard['requests.memory']), name
+        assert sum(quantity(r['limits']['memory']) for r in parts) <= quantity(hard['limits.memory']), name
+
+    # Argo AppProject 가 새 namespace 에 배포를 허용해야 한다.
+    project = next(x for x in local['seed'] if x['kind'] == 'AppProject')
+    allowed = {d['namespace'] for d in project['spec']['destinations']}
+    apps = [x for x in local['root'] if x['kind'] == 'Application']
+    assert {a['spec']['destination']['namespace'] for a in apps} <= allowed
+    assert {d['metadata']['namespace'] for name in LOCAL_CHARTS if name not in ('seed', 'root')
+            for d in local[name] if 'namespace' in d['metadata']} <= allowed
+    namespaces = {x['metadata']['name'] for x in local['foundation'] if x['kind'] == 'Namespace'}
+    assert LOAD_NAMESPACE in namespaces, 'load-test namespace is created by foundation'
+    return runs
+
+
 # 9단계 용량 검사. 노드 allocatable 은 배포 전 추정값이다(배포 후 `kubectl describe node` 로 바꿔 확인).
 #   EKS AL2023: kube-reserved 메모리 = 255Mi + 11Mi × maxPods, CPU = 6%·1%·0.5%·0.5%(코어 순), eviction 100Mi.
 #   maxPods 는 VPC CNI 기본(prefix delegation 없음): m7i.xlarge 58, m7i.large 29.
@@ -654,7 +737,7 @@ def schedulable_nodes(pod):
     return [n for n in NODES if n == 'app' or exists or n in tolerated]
 
 
-def check_capacity(local, upstream):
+def check_capacity(local, upstream, testruns):
     """역할별 노드에 뜨는 Pod 의 requests·memory limit 합을 allocatable 추정값과 비교한다."""
     usage = {n: {'cpu': 0.0, 'memory': 0.0, 'limit': 0.0, 'pods': []} for n in NODES}
     missing = []
@@ -693,6 +776,11 @@ def check_capacity(local, upstream):
                 cpu, memory, limit = pod_resources(pod)
                 add(schedulable_nodes(pod)[0], f'argo-cd/{doc["metadata"]["name"]}', cpu, memory, limit)
     assert not missing, f'requests missing (scheduler cannot account for them): {sorted(set(missing))}'
+    # 부하 시험 중에만 뜨는 k6 Pod. initializer → starter·runner 순서라 동시에 뜨는 가장 큰 조합(runner + starter)을 더한다.
+    peak = max(testruns.values(), key=lambda run: quantity(run['spec']['runner']['resources']['requests']['cpu']))
+    for part in ('runner', 'starter'):
+        cpu, memory, limit = pod_resources({'containers': [peak['spec'][part]]})
+        add('platform', f'load-test/k6 {part} (시험 중)', cpu, memory, limit)
     for node in NODES:
         for name, (cpu, memory) in EKS_DAEMONSETS.items():
             add(node, 'eks/' + name, cpu, memory, 0)
@@ -718,7 +806,13 @@ def check_capacity(local, upstream):
 # 클러스터에서만 나오는 지표(kube-prometheus-stack 의 kubelet·cAdvisor·kube-state-metrics 와 Prometheus 자체).
 # 로컬에서 수집할 수 없어 이름을 여기 적는다. 앱·exporter 지표는 tests/fixtures/metrics/*.txt(실제 수집 결과)와 대조한다.
 CLUSTER_METRICS = {'up', 'container_memory_working_set_bytes', 'kube_pod_container_status_restarts_total',
-                   'kube_pod_container_resource_limits', 'kubelet_volume_stats_used_bytes', 'kubelet_volume_stats_capacity_bytes'}
+                   'kube_pod_container_resource_limits', 'kubelet_volume_stats_used_bytes', 'kubelet_volume_stats_capacity_bytes',
+                   'container_cpu_usage_seconds_total', 'kube_pod_container_resource_requests', 'kube_node_status_allocatable',
+                   # kube_node_labels 의 label_workload 는 kube-state-metrics metricLabelsAllowlist(nodes=[workload]) 로 생긴다
+                   'kube_node_labels',
+                   # kube-prometheus-stack 기본 recording rule (node 라벨을 붙여 준다)
+                   'node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate',
+                   'node_namespace_pod_container:container_memory_working_set_bytes'}
 PROMQL_WORDS = {'by', 'without', 'on', 'ignoring', 'group_left', 'group_right', 'bool', 'and', 'or', 'unless', 'offset', 'inf', 'nan'}
 
 

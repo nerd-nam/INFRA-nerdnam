@@ -65,5 +65,12 @@
     "appVersion": "3.1.0",
     "url": "https://github.com/grafana-community/helm-charts/releases/download/tempo-3.2.0/tempo-3.2.0.tgz",
     "digest": "3494fb80021722b1bc4d9403f9affbe3838a849fb6563e4db94c9271cc958e05"
+  },
+  "k6-operator": {
+    "repo": "https://grafana.github.io/helm-charts",
+    "version": "4.7.0",
+    "appVersion": "1.7.0",
+    "url": "https://github.com/grafana/helm-charts/releases/download/helm-k6-operator-4.7.0/k6-operator-4.7.0.tgz",
+    "digest": "714acfbca962dcc000d950798e117cb9760739ca941c67e9c144a5477ffa8986"
   }
 }

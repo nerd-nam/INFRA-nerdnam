@@ -1,0 +1,17 @@
+{{- /*
+  9단계 부하 시험: k6-operator 가 TestRun(gitops/load/testruns)을 받아 클러스터 안에서 k6 Pod 를 띄운다.
+  operator·k6 Pod 모두 platform 노드. 부하를 만드는 쪽이 app 노드의 CPU·메모리를 쓰면 측정이 흐려진다.
+  namespace 는 Argo 의 CreateNamespace 로 만든다(차트가 만들면 Argo 가 지울 수 있다).
+*/}}
+namespace:
+  create: false
+nodeSelector:
+  workload: platform
+tolerations:
+  - {key: dedicated, operator: Equal, value: platform, effect: NoSchedule}
+manager:
+  logging:
+    development: false
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 128Mi}

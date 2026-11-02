@@ -1,0 +1,35 @@
+{{- /*
+  9단계 부하 시험. k6-operator(gitops/root/configs/k6-operator.yaml)가 testruns/ 의 TestRun 을 받아 이 ConfigMap 으로 k6 를 띄운다.
+  TestRun 은 템플릿이 아니다(Argo 가 띄우면 sync 때마다 시험이 돈다). 운영자가 필요할 때 kubectl create -f 로 만든다.
+*/}}
+{{- $host := required "environment.appHostname is required" .Values.environment.appHostname }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-scripts
+  namespace: load-test
+data:
+  {{- range $path, $_ := .Files.Glob "scripts/*.js" }}
+  {{ base $path }}: |
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+---
+# TestRun 의 runner 가 envFrom 으로 읽는다. 대상 도메인과 결과 지표 경로.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-env
+  namespace: load-test
+data:
+  BASE_URL: {{ printf "https://%s" $host | quote }}
+  K6_PROMETHEUS_RW_SERVER_URL: {{ .Values.prometheusWriteUrl | quote }}
+  K6_PROMETHEUS_RW_TREND_STATS: {{ .Values.trendStats | quote }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: load-test
+  namespace: load-test
+spec:
+  hard:
+    {{- toYaml .Values.quota | nindent 4 }}
