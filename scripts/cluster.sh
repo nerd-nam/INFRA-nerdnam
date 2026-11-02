@@ -42,7 +42,7 @@ check_ip() {
   if ! tr '\t' '\n' <<<"$allowed" | grep -qx "$ip/32"; then
     die "지금 IP $ip 가 EKS API 허용 목록($allowed)에 없습니다.
   $VARS 의 eks_public_access_cidrs 에 \"$ip/32\" 를 넣고 아래를 먼저 실행하세요(내려 둔 상태면 -var eks_node_count=0 필수).
-    terraform plan -var-file=$VARS -var eks_node_count=<지금 노드 수> -out=cidr.plan && terraform apply cidr.plan"
+    scripts/tf-apply.sh root        (지금 노드 수를 그대로 유지한다)"
   fi
   echo "관리 IP $ip: 허용 목록 안"
 }

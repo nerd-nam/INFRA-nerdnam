@@ -27,9 +27,11 @@
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 export AWS_PROFILE=nerdnam-infra
 terraform init -input=false -lockfile=readonly
-terraform plan -input=false -var-file=eks.dev.tfvars -out=dev.plan    # 검토
-terraform apply dev.plan
+scripts/tf-apply.sh root --plan-only    # 검토만
+scripts/tf-apply.sh root                # main = origin/main 확인 → plan → 확인 → apply → 남은 변경 확인
 ```
+
+`scripts/tf-apply.sh`는 로컬 main이 origin/main과 같고 Terraform·GitOps 파일에 commit 안 한 변경이 없을 때만 적용한다. root는 지금 노드 수를 그대로 넘긴다(노드 켜고 끄기는 `scripts/cluster.sh`). 삭제·교체가 있는 plan은 `apply-with-delete`를 직접 입력해야 진행한다.
 
 확인:
 
@@ -72,9 +74,9 @@ terraform output -json observability                          # loki/tempo bucke
 ```sh
 cd bootstrap
 terraform init -input=false -lockfile=readonly
-terraform plan -input=false -var app_hostname=<도메인> -var sample_hostname=<샘플 도메인> \
-  -var acme_email=<메일> -out=bootstrap.plan
-terraform apply bootstrap.plan
+cd ..
+# 입력: bootstrap/dev.tfvars(git 밖) 에 app_hostname·sample_hostname·acme_email. git_revision 은 넣지 않는다(기본 main)
+scripts/tf-apply.sh bootstrap           # 관리 IP 허용·노드 실행 중인지도 확인한다
 kubectl -n argocd get applications          # root 와 자식 Application 이 보인다. 모두 OutOfSync(수동 sync)
 ```
 
