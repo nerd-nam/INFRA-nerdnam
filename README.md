@@ -39,8 +39,9 @@ terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
-# 실제 AWS plan이 필요할 때만 실제 입력값과 조회 권한을 준비합니다.
-# terraform plan -var-file=eks.dev.tfvars
+# 실제 AWS 적용은 main 에서 안전장치 스크립트로만 합니다(main = origin/main, 미커밋 변경 없음, 삭제는 직접 확인).
+# scripts/tf-apply.sh root --plan-only
+# scripts/tf-apply.sh root | bootstrap
 ```
 
 `terraform test`는 mock AWS provider만 사용합니다. 테스트 안의 apply는 메모리의 가짜 리소스를 만드는 동작이며 AWS 리소스를 생성하지 않습니다. 현재 작업은 코드 작성·검증까지이며 실제 apply는 실행하지 않습니다. VPC와 EKS는 항상 루트 설정에 포함되고, 별도 활성화 스위치는 없습니다.

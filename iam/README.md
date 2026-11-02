@@ -11,6 +11,7 @@
 | `NerdnamTerraformWorkloadDev` | [workload 정책 초안](policies/nerdnam-terraform-workload-dev.json) | AI Bedrock 역할·CI 역할 3개의 생성·inline 정책, AI 역할 PassRole(Pod Identity), GitHub OIDC provider 관리 |
 | `NerdnamTerraformObservabilityDev` | [observability 정책 초안](policies/nerdnam-terraform-observability-dev.json) | Loki 로그·Tempo trace bucket 2개의 생성·설정·삭제, Loki·Tempo 역할과 inline 정책, 두 역할 PassRole(Pod Identity). 객체 읽기·쓰기는 넣지 않음 |
 | `NerdnamTerraformBootstrapStateDev` | [bootstrap state 정책](policies/nerdnam-terraform-bootstrap-state-dev.json) | 별도 dev/bootstrap.tfstate와 잠금 객체 |
+| `NerdnamTerraformCiDev` | [CI 정책](policies/nerdnam-terraform-ci-dev.json) | GitHub Actions Terraform 역할 2개(`nerdnam-dev-tf-plan`·`tf-apply`) 생성·trust·inline 정책. plan 역할에는 `ReadOnlyAccess` 만, apply 역할에는 위 실행자 정책 7개(bootstrap state 제외, 이 정책 포함)만 붙일 수 있다. [Terraform CI](../docs/Terraform-CI.md) |
 
 ## 적용
 

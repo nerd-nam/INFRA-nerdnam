@@ -30,3 +30,8 @@ output "observability" {
   description = "Loki 로그·Tempo trace bucket 과 역할. bootstrap 이 bucket 이름을 GitOps 로 넘긴다."
   value       = module.observability
 }
+
+output "terraform_ci" {
+  description = "GitHub Actions 저장소 변수 TF_PLAN_ROLE_ARN·TF_APPLY_ROLE_ARN 에 넣는 역할과 승인 Environment 이름."
+  value       = module.terraform_ci
+}

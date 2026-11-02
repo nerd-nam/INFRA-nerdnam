@@ -1,0 +1,210 @@
+# Terraform root(AWS) 를 CI 에서 plan·apply 한다. 절차와 준비는 docs/Terraform-CI.md.
+#
+#   PR          : 검사(fmt·validate·test) → plan(읽기 전용 역할) → PR 에 변경 요약 코멘트
+#   main 반영   : 검사 → plan(읽기 전용) → ⏸ 사람 승인(Environment dev-infra) → apply(쓰기 역할)
+#                 apply 는 다시 plan 을 만들어 승인한 요약과 같을 때만 적용한다(그사이 바뀌면 중단).
+#
+# 공개 저장소라 Actions 로그를 누구나 본다. plan·apply 의 값은 출력하지 않고, 리소스 주소와 바뀌는 속성 이름만 낸다.
+# bootstrap(Argo CD) 은 EKS API 가 관리 IP 에서만 열려 있어 여기서 돌리지 않는다(로컬 scripts/tf-apply.sh bootstrap).
+name: terraform
+
+on:
+  pull_request:
+    paths:
+      - "**/*.tf"
+      - "**/*.tftest.hcl"
+      - ".terraform.lock.hcl"
+      - "modules/**"
+      - "scripts/tf-plan-summary.sh"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/*.tf"
+      - "**/*.tftest.hcl"
+      - ".terraform.lock.hcl"
+      - "modules/**"
+      - "scripts/tf-plan-summary.sh"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: 1.16.1
+  AWS_REGION: ap-northeast-2
+  CLUSTER: nerdnam-dev
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  check:
+    name: 검사 (fmt·validate·test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - name: root — validate·test (mock provider, AWS 호출 없음)
+        run: |
+          terraform init -input=false -backend=false -lockfile=readonly
+          terraform validate -no-color
+          terraform test -no-color
+      - name: bootstrap — validate·test
+        working-directory: bootstrap
+        run: |
+          terraform init -input=false -backend=false -lockfile=readonly
+          terraform validate -no-color
+          terraform test -no-color
+
+  plan:
+    name: plan (읽기 전용)
+    needs: check
+    # 역할을 만들기 전(저장소 변수 없음)과 fork PR(OIDC 토큰 없음)은 건너뛴다.
+    if: >-
+      vars.TF_PLAN_ROLE_ARN != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+      summary_sha: ${{ steps.plan.outputs.summary_sha }}
+      node_count: ${{ steps.nodes.outputs.count }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          role-session-name: tf-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: 입력 파일(eks.dev.tfvars) 만들기
+        env:
+          TFVARS: ${{ secrets.EKS_DEV_TFVARS }}
+        run: |
+          [ -n "$TFVARS" ] || { echo "::error::저장소 secret EKS_DEV_TFVARS 가 없습니다(docs/Terraform-CI.md)"; exit 1; }
+          printf '%s\n' "$TFVARS" > eks.dev.tfvars
+      # 노드 켜고 끄기는 scripts/cluster.sh 가 한다. 지금 노드 수를 그대로 넘겨 plan 이 노드를 바꾸지 않게 한다.
+      - name: 지금 노드 수
+        id: nodes
+        run: |
+          if out=$(aws eks describe-nodegroup --region "$AWS_REGION" --cluster-name "$CLUSTER" --nodegroup-name app \
+                     --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1); then n=$out
+          elif grep -q ResourceNotFoundException <<<"$out"; then n=1
+          else echo "::error::노드 그룹 조회 실패"; exit 1; fi
+          [[ "$n" =~ ^[01]$ ]] || { echo "::error::예상 밖의 노드 수 $n"; exit 1; }
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+      - name: plan
+        id: plan
+        env:
+          NODE_COUNT: ${{ steps.nodes.outputs.count }}
+        run: |
+          terraform init -input=false -lockfile=readonly -no-color > /dev/null
+          # 읽기 전용 역할이라 state 잠금(쓰기)을 하지 않는다. 값이 로그에 남지 않게 plan 출력은 버리고 요약만 낸다.
+          terraform plan -input=false -lock=false -no-color -var-file=eks.dev.tfvars \
+            -var "eks_node_count=$NODE_COUNT" -out=tf.plan > /dev/null
+          scripts/tf-plan-summary.sh tf.plan > summary.tsv
+          if [ -s summary.tsv ]; then echo "has_changes=true" >> "$GITHUB_OUTPUT"; else echo "has_changes=false" >> "$GITHUB_OUTPUT"; fi
+          echo "summary_sha=$(sha256sum summary.tsv | cut -c1-64)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Terraform plan (root, 노드 수 $NODE_COUNT 유지)"
+            echo
+            if [ -s summary.tsv ]; then
+              if grep -qE '^(delete|replace)' summary.tsv; then
+                echo "> [!WARNING]"
+                echo "> **삭제 또는 교체가 있습니다.** 무엇이 지워지는지 확인하세요."
+                echo
+              fi
+              echo '| 동작 | 리소스 | 바뀌는 속성 |'
+              echo '| --- | --- | --- |'
+              awk -F'\t' '{printf "| %s | `%s` | %s |\n", $1, $2, $3}' summary.tsv
+            else
+              echo "변경 없음."
+            fi
+            echo
+            echo "<sub>값은 출력하지 않습니다(공개 로그). 자세한 값은 관리자가 로컬에서 \`scripts/tf-apply.sh root --plan-only\`.</sub>"
+          } > summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: PR 에 요약 코멘트
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          marker='<!-- terraform-plan-root -->'
+          { echo "$marker"; cat summary.md; echo; echo "commit \`${GITHUB_SHA::7}\` · [실행 기록](${GITHUB_SERVER_URL}/${REPO}/actions/runs/${GITHUB_RUN_ID})"; } > body.md
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                 --jq "[.[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\")))][0].id // empty")
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@body.md > /dev/null
+          else gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@body.md > /dev/null; fi
+
+  apply:
+    name: apply (사람 승인 후)
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      needs.plan.outputs.has_changes == 'true' && vars.TF_APPLY_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    # Required reviewers 가 승인해야 시작한다. apply 역할의 trust 는 이 Environment 의 토큰만 받는다.
+    environment: dev-infra
+    concurrency:
+      group: terraform-apply-dev
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          role-session-name: tf-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: 입력 파일(eks.dev.tfvars) 만들기
+        env:
+          TFVARS: ${{ secrets.EKS_DEV_TFVARS }}
+        run: printf '%s\n' "$TFVARS" > eks.dev.tfvars
+      - name: 다시 plan → 승인한 요약과 같은지 확인
+        env:
+          NODE_COUNT: ${{ needs.plan.outputs.node_count }}
+          APPROVED_SHA: ${{ needs.plan.outputs.summary_sha }}
+        run: |
+          terraform init -input=false -lockfile=readonly -no-color > /dev/null
+          terraform plan -input=false -no-color -var-file=eks.dev.tfvars \
+            -var "eks_node_count=$NODE_COUNT" -out=tf.plan > /dev/null
+          scripts/tf-plan-summary.sh tf.plan > summary.tsv
+          now=$(sha256sum summary.tsv | cut -c1-64)
+          if [ "$now" != "$APPROVED_SHA" ]; then
+            echo "::error::승인한 plan 과 지금 plan 이 다릅니다(그사이 AWS·state·노드 수가 바뀜). 적용하지 않습니다. 다시 실행하세요."
+            awk -F'\t' '{print "  " $1 "  " $2}' summary.tsv
+            exit 1
+          fi
+      - name: apply
+        run: |
+          # 출력에 값(output 포함)이 섞이지 않게 결과 줄만 남긴다.
+          terraform apply -input=false -no-color tf.plan > apply.log 2>&1 || { grep -E '^(Error|│ Error)' apply.log | head -20; exit 1; }
+          grep -E '^Apply complete' apply.log
+      - name: 적용 뒤 남은 변경 확인
+        env:
+          NODE_COUNT: ${{ needs.plan.outputs.node_count }}
+        run: |
+          set +e
+          terraform plan -input=false -no-color -detailed-exitcode -var-file=eks.dev.tfvars \
+            -var "eks_node_count=$NODE_COUNT" > /dev/null 2>&1
+          rc=$?
+          [ $rc -eq 0 ] && { echo "남은 변경 없음 (${GITHUB_SHA::7})" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          echo "::error::적용 뒤에도 변경이 남아 있습니다(rc=$rc)."; exit 1
