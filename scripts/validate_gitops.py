@@ -665,6 +665,9 @@ def check_load(local, upstream, schemas):
             pod = spec[part]
             assert pod['envFrom'] == [{'configMapRef': {'name': 'k6-env'}}], f'{where} {part}: env'
         assert spec['runner']['env'] == spec['initializer']['env'], f'{where}: initializer computes VUs from the same env'
+        # k6-operator initializer 는 k6 archive 에 env 목록만 -e 로 넘긴다(envFrom 은 스크립트 __ENV 에 안 들어간다, 2026-11-02 첫 실행에서 실패).
+        base = next((e for e in spec['initializer']['env'] if e['name'] == 'BASE_URL'), None)
+        assert base and base['valueFrom']['configMapKeyRef'] == {'name': 'k6-env', 'key': 'BASE_URL'}, f'{where}: BASE_URL in env (not only envFrom)'
         scenario = next(e['value'] for e in spec['runner']['env'] if e['name'] == 'SCENARIO')
         assert scenario == path.stem and f"  {scenario}: " in scripts['nerdnam.js'], f'{where}: scenario'
         session = next(e for e in spec['runner']['env'] if e['name'] == 'SESSION')
