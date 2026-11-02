@@ -1,7 +1,8 @@
 locals {
-  # /16의 첫 /24와 두 번째 /20을 사용해 포함 관계와 비중첩을 보장한다.
-  public_cidr  = cidrsubnet(var.vpc_cidr, 8, 0)
-  private_cidr = cidrsubnet(var.vpc_cidr, 4, 1)
+  # /16의 첫 /24, 두 번째·세 번째 /20을 사용해 포함 관계와 비중첩을 보장한다.
+  public_cidr      = cidrsubnet(var.vpc_cidr, 8, 0)
+  private_cidr     = cidrsubnet(var.vpc_cidr, 4, 1)
+  app_private_cidr = cidrsubnet(var.vpc_cidr, 4, 2)
 }
 
 resource "aws_vpc" "this" {
@@ -52,6 +53,17 @@ resource "aws_subnet" "private" {
   }
 }
 
+# app 노드용 private 서브넷. 인터넷 공개 NLB 는 public 서브넷 AZ 의 대상에만 보낼 수 있으므로 public 과 같은 AZ 에 둔다.
+# 노드에 공인 IP 를 주지 않고, 외부로 나가는 통신은 같은 AZ 의 NAT 를 쓴다(private 라우트 테이블 공유).
+resource "aws_subnet" "app_private" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = local.app_private_cidr
+  availability_zone       = var.availability_zones.public
+  map_public_ip_on_launch = false
+
+  tags = { Name = "${var.name_prefix}-app-private" }
+}
+
 resource "aws_eip" "nat" {
   domain = "vpc"
   tags   = { Name = "${var.name_prefix}-nat" }
@@ -95,6 +107,11 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "app_private" {
+  subnet_id      = aws_subnet.app_private.id
   route_table_id = aws_route_table.private.id
 }
 

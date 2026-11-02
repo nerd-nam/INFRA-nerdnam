@@ -18,7 +18,7 @@ variable "vpc_cidr" {
 }
 
 variable "availability_zones" {
-  description = "EKS가 사용할 서로 다른 서울 AZ 두 개."
+  description = "서로 다른 서울 AZ 두 개. public AZ 에는 public 과 app_private 서브넷, private AZ 에는 private 서브넷을 만든다."
   type = object({
     public  = string
     private = string

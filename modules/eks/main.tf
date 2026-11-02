@@ -1,6 +1,6 @@
 locals {
   node_groups = {
-    app      = { instance_type = var.instance_types.app, subnet_ids = var.public_subnet_ids }
+    app      = { instance_type = var.instance_types.app, subnet_ids = var.app_subnet_ids }
     platform = { instance_type = var.instance_types.platform, subnet_ids = var.private_subnet_ids }
     data     = { instance_type = var.instance_types.data, subnet_ids = var.private_subnet_ids }
   }

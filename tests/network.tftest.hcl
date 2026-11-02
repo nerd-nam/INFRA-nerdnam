@@ -23,7 +23,9 @@ run "network_isolation" {
       aws_vpc.this.enable_dns_support && aws_vpc.this.enable_dns_hostnames &&
       aws_subnet.public.availability_zone != aws_subnet.private.availability_zone &&
       aws_subnet.public.cidr_block == "10.20.0.0/24" &&
-      aws_subnet.private.cidr_block == "10.20.16.0/20"
+      aws_subnet.private.cidr_block == "10.20.16.0/20" &&
+      aws_subnet.app_private.availability_zone == aws_subnet.public.availability_zone &&
+      aws_subnet.app_private.cidr_block == "10.20.32.0/20"
     )
     error_message = "EKS DNS 및 서로 다른 AZ의 비중첩 서브넷 구성이 필요합니다."
   }
@@ -34,6 +36,9 @@ run "network_isolation" {
       aws_route.private_default.nat_gateway_id == aws_nat_gateway.this.id &&
       aws_route_table_association.private.route_table_id == aws_route.private_default.route_table_id &&
       aws_route_table_association.private.subnet_id == aws_subnet.private.id &&
+      !aws_subnet.app_private.map_public_ip_on_launch &&
+      aws_route_table_association.app_private.route_table_id == aws_route.private_default.route_table_id &&
+      aws_route_table_association.app_private.subnet_id == aws_subnet.app_private.id &&
       aws_nat_gateway.this.subnet_id == aws_subnet.public.id &&
       aws_route.public_default.gateway_id == aws_internet_gateway.this.id &&
       aws_route_table_association.public.route_table_id == aws_route.public_default.route_table_id

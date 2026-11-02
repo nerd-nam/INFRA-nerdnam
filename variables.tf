@@ -5,7 +5,7 @@ variable "vpc_cidr" {
 }
 
 variable "availability_zones" {
-  description = "public에는 app/NLB/NAT, private에는 platform/data를 배치한다."
+  description = "public AZ 에는 NLB·NAT(public 서브넷)와 app 노드(app_private 서브넷), private AZ 에는 platform/data 를 배치한다."
   type = object({
     public  = string
     private = string

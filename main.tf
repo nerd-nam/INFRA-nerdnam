@@ -18,7 +18,7 @@ module "eks" {
   name                = "nerdnam-dev"
   kubernetes_version  = var.eks_kubernetes_version
   cluster_subnet_ids  = concat(module.network.public_subnet_ids, module.network.private_subnet_ids)
-  public_subnet_ids   = module.network.public_subnet_ids
+  app_subnet_ids      = module.network.app_subnet_ids
   private_subnet_ids  = module.network.private_subnet_ids
   admin_principal_arn = var.eks_admin_principal_arn
   public_access_cidrs = var.eks_public_access_cidrs

@@ -22,9 +22,10 @@ Terraform으로 AWS 기반을 만들고 Argo CD로 EKS 애플리케이션과 관
 | AWS 대상 | `082139775699`, `ap-northeast-2` |
 | VPC | `10.20.0.0/16`, DNS support/hostnames 활성화 |
 | public | `10.20.0.0/24`, `ap-northeast-2a`, 공인 IP 자동 부여 |
+| app private | `10.20.32.0/20`, `ap-northeast-2a`(public과 같은 AZ), 공인 IP 미부여. app 노드 전용 |
 | private | `10.20.16.0/20`, `ap-northeast-2c`, 공인 IP 미부여 |
-| 외부 경로 | public → IGW, private → public의 NAT Gateway 1개 |
-| S3 | Gateway endpoint를 두 route table에 연결 |
+| 외부 경로 | public(NLB·NAT만) → IGW, app private·private → public의 NAT Gateway 1개 |
+| S3 | Gateway endpoint를 두 route table에 연결(app private는 private route table 공유) |
 | 기본 SG | ingress/egress 없음. EKS는 cluster SG를, LBC는 NLB 관련 SG를 관리 |
 
 서브넷 CIDR은 IPv4 /16 VPC에서 자동 계산해 중첩을 방지합니다. `vpc_cidr`와 `availability_zones`를 바꿀 수 있으며 두 AZ는 달라야 합니다. `providers.tf`의 계정 제한은 다른 계정에 실수로 생성하는 것을 막습니다.

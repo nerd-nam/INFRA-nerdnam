@@ -11,7 +11,7 @@ variables {
   name                = "nerdnam-dev"
   kubernetes_version  = "1.35"
   cluster_subnet_ids  = ["subnet-public", "subnet-private"]
-  public_subnet_ids   = ["subnet-public"]
+  app_subnet_ids      = ["subnet-app"]
   private_subnet_ids  = ["subnet-private"]
   admin_principal_arn = "arn:aws:iam::082139775699:user/nerdnam-infra"
   public_access_cidrs = ["203.0.113.1/32"]
@@ -29,7 +29,7 @@ run "fixed_nodes_and_access" {
     error_message = "노드 그룹은 각각 1대로 고정해야 합니다."
   }
   assert {
-    condition     = aws_eks_node_group.this["app"].subnet_ids == toset(["subnet-public"]) && aws_eks_node_group.this["data"].subnet_ids == toset(["subnet-private"])
+    condition     = aws_eks_node_group.this["app"].subnet_ids == toset(["subnet-app"]) && aws_eks_node_group.this["data"].subnet_ids == toset(["subnet-private"])
     error_message = "역할별 서브넷 배치가 다릅니다."
   }
   assert {

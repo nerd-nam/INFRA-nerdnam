@@ -17,8 +17,13 @@ output "private_subnet_ids" {
   depends_on = [aws_route.private_default, aws_route_table_association.private, aws_vpc_endpoint.s3]
 }
 
+output "app_subnet_ids" {
+  value      = [aws_subnet.app_private.id]
+  depends_on = [aws_route.private_default, aws_route_table_association.app_private, aws_vpc_endpoint.s3]
+}
+
 output "subnet_cidrs" {
-  value = { public = local.public_cidr, private = local.private_cidr }
+  value = { public = local.public_cidr, private = local.private_cidr, app_private = local.app_private_cidr }
 }
 
 output "route_table_ids" {

@@ -1,7 +1,10 @@
 variable "name" { type = string }
 variable "kubernetes_version" { type = string }
 variable "cluster_subnet_ids" { type = list(string) }
-variable "public_subnet_ids" { type = list(string) }
+variable "app_subnet_ids" {
+  description = "app 노드 그룹 서브넷. 공인 IP 를 주지 않는 private 서브넷이어야 한다."
+  type        = list(string)
+}
 variable "private_subnet_ids" { type = list(string) }
 variable "admin_principal_arn" { type = string }
 variable "public_access_cidrs" { type = list(string) }
