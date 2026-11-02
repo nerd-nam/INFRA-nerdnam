@@ -92,7 +92,7 @@ grafana:
     storageClassName: gp3-retain
     accessModes: [ReadWriteOnce]
     size: 5Gi
-  # 공개하지 않는다. 처음에는 관리자가 kubectl port-forward 로 들어간다.
+  # 차트 Ingress 는 쓰지 않는다. grafana.<도메인> 공개(관리 IP 만)는 foundation 차트의 admin-ingress 가 맡는다.
   service:
     type: ClusterIP
   ingress:
@@ -105,6 +105,8 @@ grafana:
       reporting_enabled: false
       check_for_updates: false
       check_for_plugin_updates: false
+    server:
+      root_url: https://{{ required "environment.grafanaHostname is required" .Values.environment.grafanaHostname }}
     users:
       allow_sign_up: false
     auth.anonymous:

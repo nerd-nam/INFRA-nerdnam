@@ -78,7 +78,9 @@ terraform apply bootstrap.plan
 kubectl -n argocd get applications          # root 와 자식 Application 이 보인다. 모두 OutOfSync(수동 sync)
 ```
 
-Argo UI: `kubectl -n argocd port-forward svc/argocd-server 8080:443`. 초기 비밀번호는 `argocd-initial-admin-secret`(로그인 후 바꾸고 Secret 삭제).
+Argo UI: `https://argocd.<도메인>`(관리 IP에서만) 또는 `kubectl -n argocd port-forward svc/argocd-server 8080:80` 후 `http://localhost:8080`(HTTPS는 Traefik에서 끝내므로 서버는 HTTP). 초기 비밀번호는 `argocd-initial-admin-secret`(로그인 후 바꾸고 Secret 삭제).
+
+관리 도구 DNS: Route53 hosted zone에 `grafana.<도메인>`, `argocd.<도메인>` A 레코드(별칭 → 서비스 도메인과 같은 NLB)를 만든다. 인증서는 cert-manager가 DNS01로 발급하므로 레코드가 없어도 발급되지만, 접속하려면 레코드가 있어야 한다.
 
 ## 5. Argo 수동 sync 순서
 

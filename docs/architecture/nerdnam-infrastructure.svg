@@ -139,7 +139,7 @@
 <text x="72" y="1609" class="body" text-anchor="start">App private · Private 기본 경로 → NAT(public-a) → IGW</text>
 <text x="72" y="1637" class="small" text-anchor="start">노드는 모두 공인 IP 없음 · S3는 Gateway endpoint</text>
 <text x="680" y="1545" class="heading" text-anchor="start">운영과 데이터 보존</text>
-<text x="680" y="1578" class="body" text-anchor="start">Argo CD / Grafana: 관리자 port-forward</text>
+<text x="680" y="1578" class="body" text-anchor="start">Argo CD / Grafana: 서브도메인 · 관리 IP만</text>
 <text x="680" y="1609" class="body" text-anchor="start">관측 EBS 57Gi + 데이터 EBS 35Gi = 92Gi</text>
 <text x="680" y="1637" class="small" text-anchor="start">단일 노드·단일 replica · DB 백업 / 복원 시험 보류</text>
 <text x="1290" y="1545" class="heading" text-anchor="start">읽는 방법</text>

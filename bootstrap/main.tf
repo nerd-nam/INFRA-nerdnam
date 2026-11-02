@@ -31,8 +31,14 @@ locals {
     tempoBucket     = data.terraform_remote_state.aws.outputs.observability.tempo_bucket
     hostname        = var.sample_hostname
     appHostname     = var.app_hostname
-    acmeEmail       = var.acme_email
-    acmeServer      = var.acme_server
+    # 관리 도구 공개 주소. 관리 IP(EKS API 허용 목록과 같은 값)에서만 열린다.
+    grafanaHostname = "grafana.${var.app_hostname}"
+    argocdHostname  = "argocd.${var.app_hostname}"
+    adminAllowCidrs = data.terraform_remote_state.aws.outputs.eks.public_access_cidrs
+    # Traefik 이 Proxy Protocol 헤더(실제 사용자 IP)를 믿는 출발지 = NLB 가 있는 public 서브넷
+    nlbSourceCidrs = [data.terraform_remote_state.aws.outputs.network.subnet_cidrs.public]
+    acmeEmail      = var.acme_email
+    acmeServer     = var.acme_server
   }
 }
 resource "helm_release" "argocd" {
@@ -42,9 +48,12 @@ resource "helm_release" "argocd" {
   repository       = local.charts["argo-cd"].repo
   chart            = "argo-cd"
   version          = local.charts["argo-cd"].version
-  values           = [file("${path.module}/argocd-values.yaml")]
-  atomic           = true
-  timeout          = 900
+  values = [
+    file("${path.module}/argocd-values.yaml"),
+    yamlencode({ configs = { cm = { url = "https://argocd.${var.app_hostname}" } } }),
+  ]
+  atomic  = true
+  timeout = 900
 }
 resource "helm_release" "seed" {
   name      = "nerdnam-gitops-seed"

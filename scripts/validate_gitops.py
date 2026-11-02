@@ -118,7 +118,7 @@ def main():
     for docs in local.values():
         for doc in docs:
             group = doc['apiVersion'].split('/')[0]
-            if group in ['argoproj.io', 'cert-manager.io', 'external-secrets.io', 'monitoring.coreos.com']:
+            if group in ['argoproj.io', 'cert-manager.io', 'external-secrets.io', 'monitoring.coreos.com', 'traefik.io']:
                 schema = schemas[(doc['apiVersion'], doc['kind'])]
                 jsonschema.Draft7Validator(schema).validate(doc)
                 custom_count += 1
@@ -162,6 +162,7 @@ def main():
     assert not any(x['kind'] == 'Secret' for x in lbc_docs), 'LBC must not render its own TLS secret (use enableCertManager)'
     assert any(x['kind'] == 'Certificate' for x in lbc_docs), 'LBC webhook certificate comes from cert-manager'
     obs_count = check_observability(local, upstream)
+    admin_count = check_admin_access(local, upstream)
 
     by_kind = {doc['kind']: doc for doc in local['sample']}
     assert by_kind['Ingress']['spec']['tls'][0]['secretName'] == by_kind['Certificate']['spec']['secretName']
@@ -187,6 +188,8 @@ def main():
     print(f'PASS: {len(LOCAL_CHARTS)} local charts, {len(lock)} pinned upstream charts, '
           f'{custom_count} custom resources, {core_count} core objects (strict 1.35 schema), {scheduled} scheduling checks')
     print('PASS: NLB/TLS, secret boundaries, storage retention and missing-input checks')
+    print(f'PASS: admin UIs ({admin_count}): subdomain Ingress -> IP allowlist Middleware (= admin CIDRs) -> ClusterIP service, '
+          'NLB Proxy Protocol trusted only from public subnet, Grafana root_url, Argo CD TLS at Traefik')
     print(f'PASS: data layer ({data_count} StatefulSets): placement, PVC retention, pinned images, '
           'pod security, probes, secret keys, quota and BE<->data network policies')
     print(f'PASS: observability ({obs_count} scrape targets): platform placement incl. Prometheus/Alertmanager, retained PVCs, '
@@ -249,6 +252,53 @@ class CoreSchema:
             assert isinstance(value, int) and not isinstance(value, bool), f'{path}: expected integer'
         elif kind == 'boolean':
             assert isinstance(value, bool), f'{path}: expected boolean'
+
+
+def check_admin_access(local, upstream):
+    """Grafana·Argo CD 서브도메인은 관리 IP 에서만 열리고, IP 판단은 NLB Proxy Protocol 로 받은 실제 사용자 IP 로 한다."""
+    env = yaml.safe_load((ROOT / 'tests/fixtures/gitops-values.yaml').read_text())['environment']
+    lb = next(x for docs in upstream.values() for x in docs if x['kind'] == 'Service' and x['spec'].get('type') == 'LoadBalancer')
+    assert lb['metadata']['annotations'].get('service.beta.kubernetes.io/aws-load-balancer-proxy-protocol') == '*', 'NLB must send Proxy Protocol v2'
+    traefik = next(x for x in upstream['traefik'] if x['kind'] == 'Deployment')['spec']['template']['spec']['containers'][0]['args']
+    trusted = ','.join(env['nlbSourceCidrs'])
+    for entry in ['web', 'websecure']:
+        # Proxy Protocol 을 켰는데 entryPoint 가 헤더를 읽지 않으면 모든 요청이 깨진다. 믿는 출발지는 NLB 서브넷뿐이다.
+        assert f'--entryPoints.{entry}.proxyProtocol.trustedIPs={trusted}' in traefik, f'{entry}: proxyProtocol trustedIPs'
+        assert not any(a.startswith(f'--entryPoints.{entry}.proxyProtocol.insecure') for a in traefik)
+    assert '--providers.kubernetescrd.namespaces=argocd,monitoring' in traefik, 'Traefik CRD provider limited to admin namespaces'
+
+    foundation = local['foundation']
+    ingresses = [x for x in foundation if x['kind'] == 'Ingress']
+    services = {(x['metadata'].get('namespace'), x['metadata']['name']): x for docs in upstream.values() for x in docs if x['kind'] == 'Service'}
+    for svc in upstream['argo-cd']:
+        if svc['kind'] == 'Service':
+            services[('argocd', svc['metadata']['name'])] = svc
+    expected = {'grafana-admin': ('monitoring', env['grafanaHostname'], 'grafana'),
+                'argocd-admin': ('argocd', env['argocdHostname'], 'argocd-server')}
+    assert {x['metadata']['name'] for x in ingresses} == set(expected)
+    for ing in ingresses:
+        ns, host, backend = expected[ing['metadata']['name']]
+        where = ing['metadata']['name']
+        assert ing['metadata']['namespace'] == ns, where
+        ref = ing['metadata']['annotations']['traefik.ingress.kubernetes.io/router.middlewares']
+        assert ref == f'{ns}-admin-allowlist@kubernetescrd', where
+        mw = next(x for x in foundation if x['kind'] == 'Middleware' and x['metadata']['namespace'] == ns and x['metadata']['name'] == 'admin-allowlist')
+        assert mw['spec']['ipAllowList']['sourceRange'] == env['adminAllowCidrs'], f'{where}: allowlist must equal admin CIDRs'
+        assert 'ipStrategy' not in mw['spec']['ipAllowList'], f'{where}: use the TCP peer (Proxy Protocol), not X-Forwarded-For'
+        cert = next(x for x in foundation if x['kind'] == 'Certificate' and x['metadata']['namespace'] == ns)
+        assert ing['spec']['tls'][0]['secretName'] == cert['spec']['secretName'], where
+        assert ing['spec']['rules'][0]['host'] == host == cert['spec']['dnsNames'][0], where
+        (path,) = ing['spec']['rules'][0]['http']['paths']
+        port = path['backend']['service']['port']['number']
+        svc = services[(ns, path['backend']['service']['name'])]
+        assert svc['spec'].get('type', 'ClusterIP') == 'ClusterIP', where
+        assert any(p['port'] == port for p in svc['spec']['ports']), f'{where}: backend port {port}'
+
+    params = next(x for x in upstream['argo-cd'] if x['kind'] == 'ConfigMap' and x['metadata']['name'] == 'argocd-cmd-params-cm')
+    assert str(params['data']['server.insecure']).lower() == 'true', 'Argo CD serves HTTP behind Traefik TLS'
+    ini = next(x for x in upstream['kube-prometheus-stack'] if x['kind'] == 'ConfigMap' and x['metadata']['name'] == 'grafana')['data']['grafana.ini']
+    assert f'root_url = https://{env["grafanaHostname"]}' in ini, 'Grafana root_url'
+    return len(ingresses)
 
 
 def check_apps(local):

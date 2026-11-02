@@ -18,6 +18,12 @@ environment:
   lokiBucket: nerdnam-dev-loki-082139775699-ap-northeast-2
   tempoBucket: nerdnam-dev-tempo-082139775699-ap-northeast-2
   appHostname: app.example.invalid
+  grafanaHostname: grafana.app.example.invalid
+  argocdHostname: argocd.app.example.invalid
+  adminAllowCidrs:
+  - 203.0.113.1/32
+  nlbSourceCidrs:
+  - 10.20.0.0/24
 images:
   web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:1111111111111111111111111111111111111111111111111111111111111111
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:2222222222222222222222222222222222222222222222222222222222222222

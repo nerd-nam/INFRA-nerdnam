@@ -28,4 +28,5 @@ configs:
   cm:
     exec.enabled: false
   params:
-    server.insecure: false
+    # HTTPS 는 Traefik 에서 끝낸다(argocd.<도메인>, 관리 IP 만 허용). Traefik → argocd-server 는 클러스터 안 HTTP.
+    server.insecure: true
