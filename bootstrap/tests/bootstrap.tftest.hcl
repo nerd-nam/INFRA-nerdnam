@@ -49,3 +49,16 @@ run "bootstrap_uses_aws_outputs" {
     error_message = "Argo CD 관리 UI를 공개하면 안 됩니다."
   }
 }
+
+run "tracks_main_by_default" {
+  command = plan
+  variables {
+    sample_hostname = "sample.example.invalid"
+    app_hostname    = "app.example.invalid"
+    acme_email      = "test@example.invalid"
+  }
+  assert {
+    condition     = yamldecode(helm_release.seed.values[0]).gitRevision == "main"
+    error_message = "Argo CD 는 기본으로 main 브랜치를 추적해야 합니다(배포 지점을 로컬 파일에 두지 않는다)."
+  }
+}

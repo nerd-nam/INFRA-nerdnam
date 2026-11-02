@@ -13,7 +13,7 @@
 | add-on 버전 | `eks.dev.tfvars` `eks_addon_versions` | 권한이 생긴 뒤 서울 호환 버전 조회해 고정 |
 | 실행자 IAM 정책 7개 생성·연결 | IAM 콘솔 | [iam/README.md](../iam/README.md). state·network·EKS·platform·workload·observability·bootstrap state |
 | GitHub OIDC provider 존재 여부 | IAM | 있으면 `terraform import module.workload.aws_iam_openid_connect_provider.github <ARN>` |
-| 배포 Git revision | bootstrap `git_revision` | **원격에 push된 commit**이어야 Argo가 읽는다 |
+| 배포 Git revision | bootstrap `git_revision` (기본 `main`) | Argo는 main 브랜치를 추적한다. 따로 넣지 않는다. 장애 때 특정 commit에 잠시 고정할 때만 지정 |
 | 서비스·샘플 도메인, ACME 이메일 | bootstrap `app_hostname`, `sample_hostname`, `acme_email`, `acme_server` | 처음엔 staging ACME로 확인 후 production |
 | private Git 자격 증명 | Argo CD repository secret | ESO보다 먼저 필요. Git·state에 넣지 않는다 |
 | Secret JSON 4개 | Secrets Manager (1단계 이후) | 아래 3절 |
@@ -72,7 +72,7 @@ terraform output -json observability                          # loki/tempo bucke
 ```sh
 cd bootstrap
 terraform init -input=false -lockfile=readonly
-terraform plan -input=false -var git_revision=<commit> -var app_hostname=<도메인> -var sample_hostname=<샘플 도메인> \
+terraform plan -input=false -var app_hostname=<도메인> -var sample_hostname=<샘플 도메인> \
   -var acme_email=<메일> -out=bootstrap.plan
 terraform apply bootstrap.plan
 kubectl -n argocd get applications          # root 와 자식 Application 이 보인다. 모두 OutOfSync(수동 sync)
@@ -136,12 +136,23 @@ DNS: `app_hostname`의 A(alias) 레코드를 NLB로 만든다(자동 생성 없�
 | 데이터 | **백업이 아직 없다**(보류). PVC·StatefulSet 삭제, 파괴적 migration을 하지 않는다. PVC는 Retain이라 Application을 지워도 남는다 |
 | 전체 철거 | Application 삭제 → bootstrap destroy → 루트 destroy. EBS(Retain PV)와 S3 bucket(Loki·Tempo)은 수동 삭제 대상으로 남는다. **GitHub OIDC provider는 계정에 원래 있던 것을 import했다(2026-10-29).** 다른 저장소·프로젝트가 쓸 수 있으므로 destroy 전에 `terraform state rm module.workload.aws_iam_openid_connect_provider.github`로 관리에서 뺀다 |
 
-## 8. 이후 배포 (앱 업데이트)
+## 8. 이후 배포
+
+Argo CD는 INFRA 저장소 **main 브랜치**를 추적한다(2026-11-02부터). 배포 지점을 로컬 파일에 두지 않는다.
+
+- **무엇을**: PR을 main에 merge한다(리뷰·기록이 Git에 남는다).
+- **언제**: Argo가 3분 안에 main을 다시 읽어 바뀐 Application을 OutOfSync로 표시한다. 운영자가 확인하고 sync한다(`scripts/argo-sync.sh <앱>`). 바로 보려면 Argo 화면에서 REFRESH.
+- bootstrap apply는 Argo CD 자체 설정(`bootstrap/argocd-values.yaml`)이나 seed 값(도메인·관리 IP 등)을 바꿀 때만 한다.
+- 새 Application을 추가하거나 root 설정을 바꿨으면 `nerdnam-root`를 먼저 sync한다.
+
+앱 업데이트:
 
 1. 앱 저장소 main merge → CI가 ECR push → 실행 요약 digest.
 2. BE를 바꿀 때만: AI 작업 비우기(앱-배포 문서 8절, `POST /actuator/aijob {"state":"drain"}` → `drained:true`). drain 중에도 다른 API는 동작한다(BE #52).
 3. `images.yaml` PR merge → `nerdnam-apps` sync. BE는 Recreate라 기동까지(수십 초) 중단된다.
 4. 대시보드에서 5xx·응답 시간·AI 작업 실패를 배포 전후로 비교한다.
+
+특정 지점에 잠시 고정(장애 대응): `bootstrap/dev.tfvars`에 `git_revision = "<commit>"`을 넣고 bootstrap apply → 해당 앱 sync. 원인을 고친 PR이 main에 들어가면 그 줄을 지우고 다시 apply해 main 추적으로 돌린다. 보통의 되돌리기는 7절처럼 Git revert PR로 한다.
 
 ## 9. 실행 기록
 

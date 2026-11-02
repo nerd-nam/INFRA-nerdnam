@@ -1,5 +1,5 @@
 # 실제 환경 입력값은 ignored *.tfvars에 저장한다.
-git_revision = "main"
+# git_revision 은 기본값 main 을 쓴다. 장애 때 특정 commit 에 잠시 고정할 때만 넣는다.
 sample_hostname = "sample.example.com"
 app_hostname = "nerdnam.example.com"
 acme_email = "ops@example.com"

@@ -1,6 +1,10 @@
 variable "git_revision" {
-  description = "GitOps 코드가 있는 Git commit SHA 또는 관리할 branch/tag."
+  description = <<-EOT
+    Argo CD 가 추적할 INFRA 저장소 revision. 기본은 main 브랜치: PR merge 로 "무엇을", 수동 sync 로 "언제" 배포할지 정한다.
+    commit SHA·tag 는 장애 때 특정 지점에 잠시 고정할 때만 쓰고, 끝나면 main 으로 되돌린다.
+  EOT
   type        = string
+  default     = "main"
 }
 variable "sample_hostname" {
   description = "HTTPS 샘플 서비스의 실제 DNS 이름."
