@@ -5,7 +5,7 @@
     api     → ai:8000           (AI 호출)     api → postgres/redis 는 gitops/data 의 allow-api-to-data
     api     → 외부 443          (Google·Kakao OAuth)
     ai      → 외부 443          (Bedrock), Pod Identity Agent:80
-    Prometheus(monitoring) → api:8081 (지표, 7단계)
+    Prometheus(monitoring) → api:8081 (지표, 7단계), ai:8000 (/metrics, AI #44)
     web·api·ai → monitoring/alloy:4318 (OTLP trace, 8단계)
   AI·web 은 DB·Redis 에 닿지 않는다.
 */}}
@@ -66,6 +66,24 @@ spec:
           podSelector:
             matchLabels: {app.kubernetes.io/name: prometheus}
       ports: [{protocol: TCP, port: {{ $v.api.managementPort }}}]
+---
+# AI 는 지표를 서비스 포트(8000)의 /metrics 로 낸다. Prometheus 만 추가로 연다(AI 는 공개 진입이 없다).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-ai
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {app: ai}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports: [{protocol: TCP, port: {{ $v.ai.port }}}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

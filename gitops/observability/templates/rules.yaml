@@ -23,6 +23,28 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: BE 응답 시간 p95 가 3초를 넘는 상태가 10분째다 (DB·Redis·노드 자원 확인)
+        - alert: NerdnamAiDown
+          expr: up{namespace="nerdnam", job="ai"} == 0
+          for: 5m
+          labels: {severity: critical}
+          annotations:
+            summary: AI 서버 지표를 5분 동안 수집하지 못했다 (AI Pod·NetworkPolicy 확인)
+        # AI #44 지표. 호출이 드물 때 1~2건 실패로 울리지 않게 10분에 5건 이상일 때만
+        - alert: NerdnamBedrockErrorsHigh
+          expr: |
+            sum(rate(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai", result!="ok"}[10m]))
+              / sum(rate(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai"}[10m])) > 0.2
+            and sum(increase(nerdnam_ai_bedrock_calls_total{namespace="nerdnam", job="ai"}[10m])) >= 5
+          for: 10m
+          labels: {severity: warning}
+          annotations:
+            summary: Bedrock 호출 실패(throttle·timeout·error)가 20% 를 넘는 상태가 10분째다 (모델 접근 권한·한도·리전 상태 확인)
+        - alert: NerdnamBedrockQueueRejected
+          expr: sum(increase(nerdnam_ai_bedrock_queue_rejected_total{namespace="nerdnam", job="ai"}[10m])) > 0
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: AI 서버가 최근 10분 안에 대기열이 차서 요청을 503 으로 거절했다 (동시 호출 상한·Bedrock 응답 시간 확인)
         - alert: NerdnamAiJobFailures
           expr: max(nerdnam_aijob_failed_recent) > 3
           for: 10m

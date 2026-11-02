@@ -1,7 +1,7 @@
 {
   "uid": "nerdnam-service",
   "title": "nerdnam 서비스",
-  "description": "BE 요청·AI 작업·임베딩·Pod 상태. 알림 규칙(gitops/observability/templates/rules.yaml)과 같은 지표를 본다.",
+  "description": "BE 요청·AI 작업·Bedrock(AI 서버)·임베딩·Pod 상태. 알림 규칙(gitops/observability/templates/rules.yaml)과 같은 지표를 본다.",
   "tags": [
     "nerdnam"
   ],
@@ -589,11 +589,408 @@
     },
     {
       "type": "row",
+      "title": "Bedrock (AI 서버)",
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 23
+    },
+    {
+      "type": "stat",
+      "title": "AI 수집",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{namespace=\"nerdnam\", job=\"ai\"})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "0 이면 AI 가 죽었거나 Prometheus 가 :8000/metrics 에 닿지 못한다",
+      "id": 24
+    },
+    {
+      "type": "stat",
+      "title": "Bedrock 실패율 (1시간)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(increase(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\", result!=\"ok\"}[1h])) or vector(0)) / clamp_min(sum(increase(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[1h])), 1)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "throttle·timeout·error 비율. 대기열 거절(503)은 Bedrock 에 가지 않아 여기 들어가지 않는다",
+      "id": 25
+    },
+    {
+      "type": "stat",
+      "title": "토큰 (24시간)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(nerdnam_ai_bedrock_tokens_total{namespace=\"nerdnam\", job=\"ai\"}[24h]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "입력+출력 토큰. Bedrock 비용을 가늠하는 숫자 (AI 재시작 직후에는 작게 나온다)",
+      "id": 26
+    },
+    {
+      "type": "stat",
+      "title": "대기열 거절 (1시간)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 39,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(nerdnam_ai_bedrock_queue_rejected_total{namespace=\"nerdnam\", job=\"ai\"}[1h])) or vector(0)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "동시 호출 자리가 없어 503 으로 거절한 요청 수",
+      "id": 27
+    },
+    {
+      "type": "timeseries",
+      "title": "Bedrock 호출 (종류·결과별, 분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (operation, result) (rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[5m])) * 60",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {},
+      "description": "converse = LLM(Nova), invoke_model = 임베딩(Titan)",
+      "id": 28
+    },
+    {
+      "type": "timeseries",
+      "title": "Bedrock 호출 시간 p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(nerdnam_ai_bedrock_call_duration_seconds_bucket{namespace=\"nerdnam\", job=\"ai\"}[5m])))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "SDK 재시도 시간 포함. 구간 0.5·1·3·10·30·60초",
+      "id": 29
+    },
+    {
+      "type": "timeseries",
+      "title": "토큰 (시간당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (model, direction) (rate(nerdnam_ai_bedrock_tokens_total{namespace=\"nerdnam\", job=\"ai\"}[1h])) * 3600",
+          "legendFormat": "{{model}} {{direction}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "최근 1시간 평균 속도로 본 시간당 토큰",
+      "id": 30
+    },
+    {
+      "type": "timeseries",
+      "title": "재시도 비율 (시도 ÷ 호출)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (operation) (rate(nerdnam_ai_bedrock_attempts_total{namespace=\"nerdnam\", job=\"ai\"}[15m])) / sum by (operation) (rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[15m]))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {},
+      "description": "1 이면 재시도 없음. 1 보다 크면 Bedrock 이 throttle 을 걸고 있다",
+      "id": 31
+    },
+    {
+      "type": "timeseries",
+      "title": "대기열 대기 p95·거절",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(nerdnam_ai_bedrock_queue_wait_seconds_bucket{namespace=\"nerdnam\", job=\"ai\"}[5m])))",
+          "legendFormat": "대기 p95 {{kind}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (kind) (increase(nerdnam_ai_bedrock_queue_rejected_total{namespace=\"nerdnam\", job=\"ai\"}[5m]))",
+          "legendFormat": "거절(5분) {{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "동시 호출 자리를 기다린 시간. 거절은 대기열이 차거나 시간 상한을 넘은 것",
+      "id": 32
+    },
+    {
+      "type": "timeseries",
+      "title": "AI 요청 p95 (경로별)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(nerdnam_ai_request_duration_seconds_bucket{namespace=\"nerdnam\", job=\"ai\"}[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "BE → AI HTTP 요청 처리 시간 (프로브·/metrics 제외)",
+      "id": 33
+    },
+    {
+      "type": "row",
       "title": "Pod",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 68,
         "w": 24,
         "h": 1
       },
@@ -609,7 +1006,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 69,
         "w": 12,
         "h": 8
       },
@@ -651,7 +1048,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 40,
+        "y": 69,
         "w": 12,
         "h": 8
       },
@@ -684,7 +1081,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 77,
         "w": 12,
         "h": 8
       },
@@ -715,7 +1112,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 48,
+        "y": 77,
         "w": 12,
         "h": 8
       },

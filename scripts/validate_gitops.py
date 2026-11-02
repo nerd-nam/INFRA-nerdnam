@@ -410,7 +410,7 @@ def check_apps(local):
                     ingress_from.setdefault(target, set()).add((source, port['port']))
     assert ingress_from == {'web': {('ns:traefik', ports['web'])},
                             'api': {('ns:traefik', ports['api']), ('web', ports['api']), ('ns:monitoring', management)},
-                            'ai': {('api', ports['ai'])}}
+                            'ai': {('api', ports['ai']), ('ns:monitoring', ports['ai'])}}
     egress_to = {}
     for spec in policies.values():
         if 'Egress' not in spec['policyTypes']:
@@ -603,7 +603,7 @@ def check_observability(local, upstream):
                     return True
             return False
         assert any(allows(p) for p in policies), f'{namespace}/{service["metadata"]["name"]}:{port_name} not reachable from Prometheus'
-    assert {(m['metadata']['namespace'], m['metadata']['name']) for m in monitors} == {('nerdnam', 'api'), ('data', 'postgres-exporter'), ('data', 'redis-exporter')}
+    assert {(m['metadata']['namespace'], m['metadata']['name']) for m in monitors} == {('nerdnam', 'api'), ('nerdnam', 'ai'), ('data', 'postgres-exporter'), ('data', 'redis-exporter')}
     rules = next(x for x in local['observability'] if x['kind'] == 'PrometheusRule')
     assert all(r['labels']['severity'] in ('warning', 'critical') for g in rules['spec']['groups'] for r in g['rules'])
     return len(monitors)

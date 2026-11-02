@@ -1,0 +1,20 @@
+# 지표 이름: AI 12ec61a app/metrics.py 를 실행해 나온 이름(2026-11-02). process_* 는 Linux 에서만 나오며 클러스터 수집으로 확인한다.
+# 대시보드·알림 규칙이 쓰는 지표 이름을 검증 스크립트가 이 목록과 대조한다. AI 이미지를 바꾸면 다시 수집한다.
+nerdnam_ai_bedrock_attempts_total
+nerdnam_ai_bedrock_call_duration_seconds_bucket
+nerdnam_ai_bedrock_call_duration_seconds_count
+nerdnam_ai_bedrock_call_duration_seconds_sum
+nerdnam_ai_bedrock_calls_total
+nerdnam_ai_bedrock_queue_rejected_total
+nerdnam_ai_bedrock_queue_wait_seconds_bucket
+nerdnam_ai_bedrock_queue_wait_seconds_count
+nerdnam_ai_bedrock_queue_wait_seconds_sum
+nerdnam_ai_bedrock_tokens_total
+nerdnam_ai_request_duration_seconds_bucket
+nerdnam_ai_request_duration_seconds_count
+nerdnam_ai_request_duration_seconds_sum
+nerdnam_ai_requests_total
+python_gc_collections_total
+python_gc_objects_collected_total
+python_gc_objects_uncollectable_total
+python_info

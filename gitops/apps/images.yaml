@@ -4,4 +4,4 @@
 images:
   web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:c4b471a6f9b9e8b1c17f2c374d18d256234ca8ecb135b71d81f9f63bacedf668  # FE 48b607c (2026-10-30, /healthz·추적 정리 FE #11)
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:bdc026311ba13d7657f5d60dbc9c0c75b832ff448b5f2a2ec8f21a817205a20e  # BE 994fd6f (2026-10-30, 응답 시간 구간 BE #54)
-  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:fa6482dbd8bb52d6d261fa87519e04958a021516534411f50acac5f235308a1c  # AI d20b9dd (2026-10-29)
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:5c7746f23b0bf7d70e55f7ba2f817821aba7933afa4bfad086cc8b3031f98c51  # AI 12ec61a (2026-11-02, /metrics AI #44)
