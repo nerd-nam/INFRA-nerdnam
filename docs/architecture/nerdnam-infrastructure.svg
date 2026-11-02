@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1450" viewBox="0 0 1800 1450" role="img" aria-labelledby="title desc">
+<title id="title">nerdnam 인프라 아키텍처</title><desc id="desc">AWS EKS의 app, platform, data 워커와 NLB, Traefik, Next.js, Spring Boot, FastAPI, PostgreSQL, Redis, Bedrock 및 운영 도구의 연결. 2026년 11월 2일 저장소 코드와 실행 기록 기준.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#345a79"/></marker><marker id="dash" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8a6fb3"/></marker></defs>
+<style>text{font-family:'Apple SD Gothic Neo','Noto Sans KR','Arial',sans-serif;fill:#172e43} .small{font-size:17px;fill:#52687b} .label{font-size:18px;font-weight:600} .body{font-size:20px} .heading{font-size:24px;font-weight:700} .title{font-size:42px;font-weight:800} .eyebrow{font-size:16px;font-weight:700;letter-spacing:2px;fill:#476e8c}</style>
+<rect width="1800" height="1450" fill="#f7f9fc"/>
+<text x="50" y="42" class="eyebrow" text-anchor="start">NERDNAM / INFRASTRUCTURE</text>
+<text x="50" y="97" class="title" text-anchor="start">서비스부터 운영까지, 한눈에 보는 인프라</text>
+<text x="50" y="131" class="body" text-anchor="start">정상 운영 구성 · AWS 서울 · EKS 워커 3대 · 코드 및 실행 기록 기준 2026.11.02</text>
+<rect x="50" y="164" width="300" height="87" rx="14" fill="#fff" stroke="#cad5e0" stroke-width="1.5"/>
+<text x="68" y="195" class="heading" text-anchor="start">사용자 브라우저</text>
+<text x="68" y="223" class="small" text-anchor="start">https://nerdnam.click</text>
+<rect x="430" y="164" width="420" height="87" rx="14" fill="#fff" stroke="#cad5e0" stroke-width="1.5"/>
+<text x="448" y="195" class="heading" text-anchor="start">Route 53</text>
+<text x="448" y="223" class="small" text-anchor="start">A alias → NLB · 서비스 DNS 수동 등록</text>
+<rect x="1390" y="164" width="350" height="87" rx="14" fill="#fff" stroke="#cad5e0" stroke-width="1.5"/>
+<text x="1408" y="195" class="heading" text-anchor="start">Google OAuth</text>
+<text x="1408" y="223" class="small" text-anchor="start">브라우저 리다이렉트 + BE 토큰 교환</text>
+<path d="M 350 202 L 430 202" fill="none" stroke="#8a6fb3" stroke-width="2.3" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#dash)"/>
+<rect x="362" y="173" width="43" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="370" y="192" class="small" text-anchor="start">DNS</text>
+<text x="892" y="197" class="small" text-anchor="start">Google 로그인 운영 기록 확인</text>
+<text x="892" y="225" class="small" text-anchor="start">Kakao: 마지막 기록상 키 미설정</text>
+<rect x="30" y="280" width="1740" height="955" rx="20" fill="#ffffff" stroke="#b9cbdc" stroke-width="1.5"/>
+<text x="52" y="309" class="heading" text-anchor="start">AWS · ap-northeast-2</text>
+<rect x="445" y="290" width="885" height="39" rx="9" fill="#edf3f9" stroke="#edf3f9" stroke-width="1.5"/>
+<text x="463" y="316" class="label" text-anchor="start">EKS nerdnam-dev 1.35  |  관리형 Control plane  |  관리 API: 허용 IP + IAM</text>
+<rect x="50" y="342" width="1290" height="866" rx="17" fill="#f8fbfd" stroke="#cad9e5" stroke-width="1.5"/>
+<text x="72" y="367" class="label" text-anchor="start">VPC  10.20.0.0/16  ·  아래 3개 노드는 동일 EKS의 워커</text>
+<rect x="70" y="390" width="580" height="780" rx="14" fill="#f0f7ff" stroke="#accce9" stroke-width="1.5"/>
+<text x="91" y="421" class="heading" text-anchor="start">PUBLIC · ap-northeast-2a</text>
+<text x="91" y="449" class="small" text-anchor="start">10.20.0.0/24</text>
+<rect x="680" y="390" width="640" height="780" rx="14" fill="#f2f9f6" stroke="#a9d0bc" stroke-width="1.5"/>
+<text x="702" y="421" class="heading" text-anchor="start">PRIVATE · ap-northeast-2c</text>
+<text x="702" y="449" class="small" text-anchor="start">10.20.16.0/20</text>
+<rect x="120" y="470" width="480" height="77" rx="14" fill="#fff" stroke="#cad5e0" stroke-width="1.5"/>
+<text x="138" y="501" class="heading" text-anchor="start">Network Load Balancer</text>
+<text x="138" y="529" class="small" text-anchor="start">internet-facing · TCP 80 / 443 · IP target</text>
+<path d="M 200 251 L 200 265 L 17 265 L 17 508 L 120 508" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="19" y="458" width="61" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="27" y="477" class="small" text-anchor="start">HTTPS</text>
+<rect x="90" y="572" width="540" height="578" rx="14" fill="#fff" stroke="#8bb9e0" stroke-width="1.5"/>
+<text x="110" y="605" class="heading" text-anchor="start">app 워커 · m7i.xlarge × 1</text>
+<text x="110" y="634" class="small" text-anchor="start">4 vCPU / 16 GiB · namespace: nerdnam / traefik</text>
+<rect x="120" y="660" width="480" height="78" rx="14" fill="#eaf3ff" stroke="#aac6e7" stroke-width="1.5"/>
+<text x="138" y="691" class="heading" text-anchor="start">Traefik</text>
+<text x="138" y="719" class="small" text-anchor="start">TLS 종료 · HTTP → HTTPS · 경로 분기</text>
+<path d="M 600 510 L 640 510 L 640 699 L 600 699" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="115" y="805" width="205" height="94" rx="14" fill="#eaf3ff" stroke="#aac6e7" stroke-width="1.5"/>
+<text x="133" y="836" class="heading" text-anchor="start">web · Next.js</text>
+<text x="133" y="864" class="small" text-anchor="start">:3000 · FE / SSR</text>
+<rect x="390" y="805" width="215" height="94" rx="14" fill="#eaf3ff" stroke="#aac6e7" stroke-width="1.5"/>
+<text x="408" y="836" class="heading" text-anchor="start">api · Spring Boot</text>
+<text x="408" y="864" class="small" text-anchor="start">:8080 · BE API</text>
+<text x="408" y="888" class="small" text-anchor="start">:8081 · 관리 전용</text>
+<path d="M 220 738 L 220 805" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="226" y="761" width="25" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="234" y="780" class="small" text-anchor="start">/</text>
+<path d="M 500 738 L 500 805" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="356" y="765" class="small" text-anchor="start">/api · /oauth2</text>
+<text x="356" y="789" class="small" text-anchor="start">/login/oauth2</text>
+<path d="M 320 853 L 390 853" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="323" y="822" width="43" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="331" y="841" class="small" text-anchor="start">SSR</text>
+<rect x="390" y="1012" width="215" height="95" rx="14" fill="#eaf3ff" stroke="#aac6e7" stroke-width="1.5"/>
+<text x="408" y="1043" class="heading" text-anchor="start">ai · FastAPI</text>
+<text x="408" y="1071" class="small" text-anchor="start">:8000 · 내부 API</text>
+<text x="408" y="1095" class="small" text-anchor="start">CPU · Pod Identity</text>
+<path d="M 495 899 L 495 1012" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="504" y="946" width="52" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="512" y="965" class="small" text-anchor="start">HTTP</text>
+<text x="116" y="970" class="label" text-anchor="start">외부 공개: web / api</text>
+<text x="116" y="1000" class="small" text-anchor="start">AI·관리 포트는 내부 전용</text>
+<text x="116" y="1030" class="small" text-anchor="start">앱별 replica 1</text>
+<text x="116" y="1060" class="small" text-anchor="start">BE 교체 방식: Recreate</text>
+<text x="116" y="1090" class="small" text-anchor="start">벡터 검색·작업 상태는 BE 담당</text>
+<rect x="700" y="470" width="600" height="265" rx="14" fill="#fff" stroke="#9fcab5" stroke-width="1.5"/>
+<text x="720" y="503" class="heading" text-anchor="start">platform 워커 · m7i.xlarge × 1</text>
+<text x="720" y="532" class="small" text-anchor="start">4 vCPU / 16 GiB · 운영 도구 / monitoring</text>
+<rect x="720" y="550" width="560" height="77" rx="14" fill="#eaf6ef" stroke="#b0d5c0" stroke-width="1.5"/>
+<text x="738" y="581" class="heading" text-anchor="start">Argo CD · Controllers</text>
+<text x="738" y="609" class="small" text-anchor="start">수동 sync · LBC · cert-manager · External Secrets</text>
+<rect x="720" y="644" width="560" height="75" rx="14" fill="#eaf6ef" stroke="#b0d5c0" stroke-width="1.5"/>
+<text x="738" y="675" class="heading" text-anchor="start">지표 · 로그 · 분산 추적</text>
+<text x="738" y="703" class="small" text-anchor="start">Prometheus / Grafana / Alertmanager / Alloy / Loki / Tempo</text>
+<rect x="700" y="765" width="600" height="385" rx="14" fill="#fff" stroke="#9fcab5" stroke-width="1.5"/>
+<text x="720" y="798" class="heading" text-anchor="start">data 워커 · m7i.large × 1</text>
+<text x="720" y="826" class="small" text-anchor="start">2 vCPU / 8 GiB · namespace: data</text>
+<rect x="735" y="853" width="255" height="93" rx="14" fill="#fff5df" stroke="#e5cc91" stroke-width="1.5"/>
+<text x="753" y="884" class="heading" text-anchor="start">PostgreSQL 17</text>
+<text x="753" y="912" class="small" text-anchor="start">+ pgvector · :5432</text>
+<text x="753" y="936" class="small" text-anchor="start">업무 데이터 + 1024차원 벡터</text>
+<rect x="1025" y="853" width="255" height="93" rx="14" fill="#fff5df" stroke="#e5cc91" stroke-width="1.5"/>
+<text x="1043" y="884" class="heading" text-anchor="start">Redis 7.4</text>
+<text x="1043" y="912" class="small" text-anchor="start">세션 · :6379</text>
+<text x="1043" y="936" class="small" text-anchor="start">AOF · everysec</text>
+<path d="M 605 865 L 665 865 L 665 888 L 735 888" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="634" y="851" class="small" text-anchor="start">SQL</text>
+<path d="M 605 888 L 652 888 L 652 977 L 1150 977 L 1150 946" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="689" y="969" class="small" text-anchor="start">BE만 DB·Redis에 접속</text>
+<rect x="735" y="1012" width="545" height="93" rx="14" fill="#fff5df" stroke="#e5cc91" stroke-width="1.5"/>
+<text x="753" y="1043" class="heading" text-anchor="start">EBS gp3 · 암호화 · Retain</text>
+<text x="753" y="1071" class="small" text-anchor="start">PostgreSQL 30Gi + Redis 5Gi</text>
+<text x="753" y="1095" class="small" text-anchor="start">EBS CSI가 PVC를 공급 · 같은 AZ에서 재연결</text>
+<path d="M 860 946 L 860 1012" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M 1245 946 L 1245 1012" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="735" y="1134" class="small" text-anchor="start">postgres_exporter :9187 · redis_exporter :9121</text>
+<text x="1390" y="367" class="heading" text-anchor="start">AWS 서비스 / 저장소</text>
+<rect x="1390" y="470" width="350" height="120" rx="14" fill="#f4effc" stroke="#c9b8e2" stroke-width="1.5"/>
+<text x="1408" y="501" class="heading" text-anchor="start">Secrets Manager</text>
+<text x="1408" y="529" class="small" text-anchor="start">backend / data / ai / monitoring</text>
+<text x="1408" y="553" class="small" text-anchor="start">ESO → Kubernetes Secret</text>
+<text x="1408" y="577" class="small" text-anchor="start">AWS 접근: Pod Identity</text>
+<path d="M 1390 550 L 1348 550 L 1348 588 L 1280 588" fill="none" stroke="#8a6fb3" stroke-width="2.3" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#dash)"/>
+<rect x="1390" y="636" width="350" height="135" rx="14" fill="#f4effc" stroke="#c9b8e2" stroke-width="1.5"/>
+<text x="1408" y="667" class="heading" text-anchor="start">S3</text>
+<text x="1408" y="695" class="small" text-anchor="start">Loki 로그 / Tempo trace</text>
+<text x="1408" y="719" class="small" text-anchor="start">S3 Gateway endpoint 경유</text>
+<text x="1408" y="743" class="small" text-anchor="start">Terraform state는 별도 bucket</text>
+<path d="M 1280 685 L 1390 685" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="1390" y="815" width="350" height="118" rx="14" fill="#f4effc" stroke="#c9b8e2" stroke-width="1.5"/>
+<text x="1408" y="846" class="heading" text-anchor="start">ECR</text>
+<text x="1408" y="874" class="small" text-anchor="start">web / api / ai 이미지</text>
+<text x="1408" y="898" class="small" text-anchor="start">GitHub Actions → OIDC push</text>
+<text x="1408" y="922" class="small" text-anchor="start">Kubernetes → digest로 pull</text>
+<rect x="1390" y="1012" width="350" height="170" rx="14" fill="#fff0e7" stroke="#e6b99a" stroke-width="1.5"/>
+<text x="1408" y="1043" class="heading" text-anchor="start">AWS Bedrock</text>
+<text x="1408" y="1071" class="small" text-anchor="start">Nova 2 Lite · 생성 / 판정</text>
+<text x="1408" y="1095" class="small" text-anchor="start">Global 추론 프로필</text>
+<text x="1408" y="1119" class="small" text-anchor="start">Titan V2 · 1024차원 임베딩</text>
+<text x="1408" y="1143" class="small" text-anchor="start">서울 endpoint로 HTTPS 요청</text>
+<path d="M 605 1060 L 665 1060 L 665 1189 L 1360 1189 L 1360 1096 L 1390 1096" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="917" y="1161" width="212" height="27" rx="4" fill="#f7f9fc" stroke="#f7f9fc" stroke-width="1.5"/>
+<text x="925" y="1180" class="small" text-anchor="start">AI → Bedrock · HTTPS</text>
+<text x="1390" y="1211" class="small" text-anchor="start">Nova 추론은 다른 리전에서 처리될 수 있음</text>
+<rect x="50" y="1257" width="1690" height="145" rx="14" fill="#eaf0f6" stroke="#d4dfe9" stroke-width="1.5"/>
+<text x="72" y="1290" class="heading" text-anchor="start">네트워크 경로</text>
+<text x="72" y="1323" class="body" text-anchor="start">Public 기본 경로 → IGW</text>
+<text x="72" y="1354" class="body" text-anchor="start">Private 기본 경로 → NAT(public-a) → IGW</text>
+<text x="72" y="1382" class="small" text-anchor="start">S3 Gateway endpoint는 두 route table에 연결</text>
+<text x="680" y="1290" class="heading" text-anchor="start">운영과 데이터 보존</text>
+<text x="680" y="1323" class="body" text-anchor="start">Argo CD / Grafana: 관리자 port-forward</text>
+<text x="680" y="1354" class="body" text-anchor="start">관측 EBS 57Gi + 데이터 EBS 35Gi = 92Gi</text>
+<text x="680" y="1382" class="small" text-anchor="start">단일 노드·단일 replica · DB 백업 / 복원 시험 보류</text>
+<text x="1290" y="1290" class="heading" text-anchor="start">읽는 방법</text>
+<path d="M 1290 1320 L 1340 1320" fill="none" stroke="#345a79" stroke-width="2.3" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<text x="1355" y="1326" class="small" text-anchor="start">주요 서비스 / 데이터 연결</text>
+<path d="M 1290 1352 L 1340 1352" fill="none" stroke="#8a6fb3" stroke-width="2.3" stroke-linejoin="round" stroke-dasharray="7 5" marker-end="url(#dash)"/>
+<text x="1355" y="1358" class="small" text-anchor="start">DNS / 관리·설정 연결</text>
+<text x="1290" y="1382" class="small" text-anchor="start">관측·배포 세부 흐름은 함께 제공한 문서 참고</text>
+<text x="50" y="1430" class="small" text-anchor="start">근거: Terraform · GitOps Helm · 앱 설정 · 2026.11.02 재기동 기록  |  이번 작성에서 실시간 AWS 상태를 재조회하지 않음</text>
+</svg>

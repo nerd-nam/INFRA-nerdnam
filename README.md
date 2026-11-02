@@ -2,6 +2,7 @@
 
 Terraform으로 AWS 기반을 만들고 Argo CD로 EKS 애플리케이션과 관측 도구를 배포하기 위한 저장소입니다.
 
+- [전체 인프라 아키텍처 구성도: 네트워크·서비스·배포·관측](docs/인프라-아키텍처.md) — 2026-11-02 코드와 최신 실행 기록 기준
 - [현재 구축 계획: EKS · GitOps · 관측](docs/EKS-GitOps-관측-구축계획.md)
 - [Terraform 실행 그룹 IAM 정책](iam/README.md)
 - [EKS 기반 작업계획과 실행 안내](docs/EKS-기반-작업계획.md)

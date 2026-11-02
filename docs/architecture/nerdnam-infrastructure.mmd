@@ -1,0 +1,58 @@
+flowchart TB
+  USER["사용자 브라우저"]
+  DNS["Route 53 · nerdnam.click\nA alias → NLB"]
+  OAUTH["Google OAuth\nKakao: 마지막 기록상 미사용"]
+  USER -. "DNS 조회" .-> DNS
+  USER -. "로그인 리다이렉트" .-> OAUTH
+  subgraph AWS["AWS · ap-northeast-2 · 정상 운영 시"]
+    CP["EKS nerdnam-dev · 1.35\nAWS 관리형 control plane"]
+    subgraph VPC["VPC · 10.20.0.0/16"]
+      IGW["Internet Gateway"]
+      subgraph PUBLIC["Public · 10.20.0.0/24 · ap-northeast-2a"]
+        NLB["Internet-facing NLB\nTCP 80/443 · IP target"]
+        NAT["NAT Gateway 1개"]
+        subgraph APP["EKS app 워커 · m7i.xlarge × 1"]
+          T["Traefik\nHTTPS 종료"]
+          W["web · Next.js :3000"]
+          B["api · Spring Boot :8080\n관리 :8081"]
+          A["ai · FastAPI :8000"]
+        end
+      end
+      subgraph PRIVATE["Private · 10.20.16.0/20 · ap-northeast-2c"]
+        subgraph PLATFORM["EKS platform 워커 · m7i.xlarge × 1"]
+          ARGO["Argo CD · 수동 sync"]
+          CTRL["LBC · cert-manager\nExternal Secrets"]
+          OBS["Prometheus · Grafana · Alertmanager\nAlloy · Loki · Tempo"]
+        end
+        subgraph DATA["EKS data 워커 · m7i.large × 1"]
+          PG[("PostgreSQL 17 + pgvector\n:5432 · PVC 30Gi")]
+          REDIS[("Redis 7.4 · 세션\n:6379 · PVC 5Gi")]
+          EXP["postgres / redis exporter"]
+        end
+      end
+      EP["S3 Gateway endpoint\npublic / private route table"]
+    end
+    SEC["Secrets Manager"]
+    S3[("S3 · Loki 로그 / Tempo trace\nTerraform state는 별도 bucket")]
+    ECR["ECR · web / api / ai"]
+    BED["Bedrock 서울 요청 endpoint\nTitan V2 · 1024차원\nNova 2 Lite · Global 프로필"]
+  end
+  USER -->|"HTTPS"| NLB
+  NLB --> T
+  T -->|"/"| W
+  T -->|"/api /oauth2 /login/oauth2"| B
+  W -->|"SSR 내부 HTTP"| B
+  B -->|"HTTP"| A
+  B -->|"SQL"| PG
+  B -->|"세션"| REDIS
+  B -->|"토큰 교환"| OAUTH
+  A -->|"HTTPS · Pod Identity"| BED
+  SEC -. "비밀값 동기화" .-> CTRL
+  CTRL -. "생성·관리" .-> NLB
+  CTRL -. "DNS01" .-> DNS
+  OBS --> EP --> S3
+  ARGO -. "배포 정의 적용" .-> APP
+  ECR -. "이미지 공급" .-> APP
+  PRIVATE -. "기본 인터넷 경로" .-> NAT
+  NAT --> IGW
+  PUBLIC -. "public 기본 인터넷 경로" .-> IGW
