@@ -70,8 +70,9 @@ if (!SCENARIOS[SCENARIO]) throw new Error(`SCENARIO 는 ${Object.keys(SCENARIOS)
 
 export const options = {
   scenarios: { [SCENARIO]: SCENARIOS[SCENARIO]() },
-  // 모든 지표에 붙는다. Prometheus 에서 실행 하나를 고르는 라벨이다.
-  tags: { testid: TEST_ID },
+  // 모든 지표에 붙는다. testid 는 실행 하나를 고르는 라벨, mode 는 시험 종류(k6_vus 처럼 scenario 라벨이 없는 지표도 나눌 수 있게).
+  // VU 의 뜻이 시험마다 다르다: concurrency 는 접속해 있는 사용자(쉬는 중 포함), rate·smoke 는 응답을 기다리는 작업자.
+  tags: { testid: TEST_ID, mode: SCENARIO },
   // 측정 전 시작값. 첫 실측 뒤 조정한다. 계단식 시험은 한도를 찾는 게 목적이라 마지막 단계에서 넘는 게 보통이다.
   thresholds: {
     checks: ['rate>0.99'],

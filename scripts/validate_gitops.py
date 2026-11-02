@@ -636,7 +636,10 @@ def check_load(local, upstream, schemas):
     docs = {x['metadata']['name']: x for x in local['load']}
     assert {x['metadata']['namespace'] for x in local['load']} == {LOAD_NAMESPACE}
     scripts, env = docs['k6-scripts']['data'], docs['k6-env']['data']
-    assert env['BASE_URL'].startswith('https://') and env['K6_PROMETHEUS_RW_TREND_STATS']
+    assert env['BASE_URL'].startswith('https://')
+    # 통계값(p95 등) 방식은 시험 시작부터의 누적이라 단계별로 읽을 수 없다. native histogram 으로 보내고 대시보드가 구간 rate 로 계산한다.
+    assert env.get('K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM') == 'true' and 'K6_PROMETHEUS_RW_TREND_STATS' not in env, \
+        'k6 trends as native histograms (trend stats are cumulative)'
     write = re.fullmatch(r'http://([a-z0-9-]+)\.([a-z0-9-]+)\.svc\.cluster\.local:(\d+)/api/v1/write', env['K6_PROMETHEUS_RW_SERVER_URL'])
     assert write, env['K6_PROMETHEUS_RW_SERVER_URL']
     service = next((x for x in stack if x['kind'] == 'Service' and x['metadata']['name'] == write.group(1)), None)
@@ -837,6 +840,9 @@ def promql_metrics(expr):
     return names
 
 
+K6_CUMULATIVE = {'k6_checks_rate', 'k6_http_req_failed_rate'}
+
+
 def check_queries(local):
     """알림 규칙·대시보드의 PromQL 이 실제로 있는 지표만 쓰고, 대시보드가 있는 데이터 소스를 가리키는지."""
     known = set(CLUSTER_METRICS)
@@ -863,8 +869,11 @@ def check_queries(local):
                 if source['type'] == 'prometheus':
                     exprs.append((f'{board["uid"]}: {panel["title"]}', target['expr']))
     for name, expr in exprs:
-        unknown = promql_metrics(expr) - known
+        metrics = promql_metrics(expr)
+        unknown = metrics - known
         assert not unknown, f'{name}: unknown metrics {sorted(unknown)} (not in tests/fixtures/metrics or CLUSTER_METRICS)'
+        # k6 의 Rate 지표는 시험 시작부터의 누적 비율이라 단계별로 읽을 수 없다(2026-11-02 로컬 확인). k6_http_reqs_total 로 구간 비율을 계산한다.
+        assert not metrics & K6_CUMULATIVE, f'{name}: cumulative k6 metric {sorted(metrics & K6_CUMULATIVE)}'
         # job 라벨은 ServiceMonitor 이름(= Service 이름)이다. namespace 와 짝이 맞아야 한다.
         for namespace, job in re.findall(r'namespace="([^"]+)",\s*job="([^"]+)"', expr):
             if namespace != 'monitoring':
