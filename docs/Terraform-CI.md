@@ -33,7 +33,7 @@ PR merge → main
 - plan 역할에 데이터 읽기 차단을 둔 이유: 쓰기 권한이 있는 사람이 PR 에서 workflow 를 바꿔 plan 역할로 Loki 로그 S3 등을 읽어 공개 로그에 출력하는 것을 막는다.
 - fork PR 은 OIDC 토큰이 없어 plan 을 건너뛴다(검사만).
 - apply 역할의 trust 가 Environment 이름에 묶여 있어, 승인 없는 작업(브랜치·PR)은 apply 역할을 받을 수 없다. Environment 에는 main 브랜치만 배포 가능하도록 건다.
-- 입력값(`eks.dev.tfvars`: 관리자 ARN·관리 IP·zone ID·add-on 버전)은 저장소 secret `EKS_DEV_TFVARS` 에 둔다(로그에서 가려진다).
+- 입력값(`eks.dev.tfvars`: 관리자 ARN·관리 IP·zone ID·add-on 버전)은 저장소 secret `EKS_DEV_TFVARS` 에 **base64 한 줄**로 둔다(로그에서 가려진다. 여러 줄로 넣으면 줄마다 가려져 로그의 `}` 등이 `***` 로 바뀐다).
 - apply 역할은 자기 자신(trust 포함)을 바꿀 수 있다. 그 변경도 PR 리뷰와 승인을 거친다.
 
 ## 3. 처음 한 번 준비 (순서대로)
@@ -43,7 +43,7 @@ PR merge → main
 3. 로컬에서 역할 생성: `scripts/tf-apply.sh root` (11개 생성: 역할 2, inline 정책 1, 정책 연결 8).
 4. GitHub 설정:
    ```sh
-   gh secret   set EKS_DEV_TFVARS   --repo nerd-nam/INFRA-nerdnam < eks.dev.tfvars
+   base64 < eks.dev.tfvars | tr -d '\n' | gh secret set EKS_DEV_TFVARS --repo nerd-nam/INFRA-nerdnam   # 한 줄(base64)
    gh variable set TF_PLAN_ROLE_ARN  --repo nerd-nam/INFRA-nerdnam --body "$(terraform output -json terraform_ci | jq -r .plan_role_arn)"
    gh variable set TF_APPLY_ROLE_ARN --repo nerd-nam/INFRA-nerdnam --body "$(terraform output -json terraform_ci | jq -r .apply_role_arn)"
    ```
@@ -57,7 +57,7 @@ PR merge → main
 | 하고 싶은 일 | 방법 |
 | --- | --- |
 | AWS 리소스 변경(코드) | PR → plan 요약 리뷰 → merge → Actions 에서 승인 |
-| 관리 IP 변경 | 로컬 `eks.dev.tfvars` 수정 → `gh secret set EKS_DEV_TFVARS < eks.dev.tfvars` → Run workflow → 승인. 이어서 로컬 `scripts/tf-apply.sh bootstrap` → `scripts/argo-sync.sh nerdnam-foundation` |
+| 관리 IP 변경 | 로컬 `eks.dev.tfvars` 수정 → `base64 < eks.dev.tfvars \| tr -d '\n' \| gh secret set EKS_DEV_TFVARS --repo nerd-nam/INFRA-nerdnam` → Run workflow → 승인. 이어서 로컬 `scripts/tf-apply.sh bootstrap` → `scripts/argo-sync.sh nerdnam-foundation` |
 | 노드 켜고 끄기 | `scripts/cluster.sh up\|down` (CI 와 무관) |
 | 급할 때 로컬 적용 | `scripts/tf-apply.sh root` (main = origin/main 일 때만). 로컬 `eks.dev.tfvars` 와 secret 이 같아야 CI plan 이 이어서 "변경 없음"이 된다 |
 | bootstrap(Argo CD·seed) | 로컬 `scripts/tf-apply.sh bootstrap`. EKS API 가 관리 IP 에서만 열려 있어 CI 실행기는 닿지 않는다 |
