@@ -1,5 +1,6 @@
 flowchart TB
   USER["사용자 브라우저"]
+  INTERNET["인터넷 / AWS 공개 endpoint\nGitHub · ECR API 등"]
   DNS["Route 53 · nerdnam.click\nA alias → NLB"]
   OAUTH["Google OAuth\nKakao: 마지막 기록상 미사용"]
   USER -. "DNS 조회" .-> DNS
@@ -10,7 +11,7 @@ flowchart TB
       IGW["Internet Gateway"]
       subgraph PUBLIC["Public · 10.20.0.0/24 · ap-northeast-2a"]
         NLB["Internet-facing NLB\nTCP 80/443 · IP target"]
-        NAT["NAT Gateway 1개"]
+        NAT["NAT Gateway 1개 + Elastic IP\nPrivate 노드의 외부 통신 출구"]
         subgraph APP["EKS app 워커 · m7i.xlarge × 1"]
           T["Traefik\nHTTPS 종료"]
           W["web · Next.js :3000"]
@@ -55,4 +56,5 @@ flowchart TB
   ECR -. "이미지 공급" .-> APP
   PRIVATE -. "기본 인터넷 경로" .-> NAT
   NAT --> IGW
+  IGW --> INTERNET
   PUBLIC -. "public 기본 인터넷 경로" .-> IGW
