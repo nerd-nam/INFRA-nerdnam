@@ -26,6 +26,10 @@ spec:
     envFrom: &envFrom
       - configMapRef: {name: k6-env}
     env: &env
+      # initializer(k6 archive)는 envFrom(시스템 환경 변수)을 스크립트에 넘기지 않는다. 스크립트가 읽는 값은 여기 env 로 직접 준다.
+      - name: BASE_URL
+        valueFrom:
+          configMapKeyRef: {name: k6-env, key: BASE_URL}
       - {name: SCENARIO, value: smoke}
       - {name: RATE, value: "2"}
       - {name: DURATION, value: 2m}
