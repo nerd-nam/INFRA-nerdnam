@@ -31,6 +31,8 @@ scripts/tf-apply.sh root --plan-only    # 검토만
 scripts/tf-apply.sh root                # main = origin/main 확인 → plan → 확인 → apply → 남은 변경 확인
 ```
 
+평소 AWS 변경은 GitHub Actions(PR plan → merge → **사람 승인** → apply)로 한다: [Terraform-CI.md](Terraform-CI.md). 아래 로컬 적용은 처음 설치·CI 역할 만들기·급할 때 쓴다.
+
 `scripts/tf-apply.sh`는 로컬 main이 origin/main과 같고 Terraform·GitOps 파일에 commit 안 한 변경이 없을 때만 적용한다. root는 지금 노드 수를 그대로 넘긴다(노드 켜고 끄기는 `scripts/cluster.sh`). 삭제·교체가 있는 plan은 `apply-with-delete`를 직접 입력해야 진행한다.
 
 확인:

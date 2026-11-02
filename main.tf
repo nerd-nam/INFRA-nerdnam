@@ -52,3 +52,13 @@ module "workload" {
   cluster_arn         = module.eks.cluster_arn
   ecr_repository_arns = module.eks.ecr_repository_arns
 }
+
+# GitHub Actions 의 Terraform plan(읽기 전용)·apply(사람 승인 Environment 전용) 역할 (docs/Terraform-CI.md)
+module "terraform_ci" {
+  source            = "./modules/terraform_ci"
+  name              = "nerdnam-dev"
+  account_id        = data.aws_caller_identity.current.account_id
+  oidc_provider_arn = module.workload.github_oidc_provider_arn
+  state_bucket      = "nerdnam-terraform-082139775699-ap-northeast-2-an"
+  state_key         = "dev/terraform.tfstate"
+}

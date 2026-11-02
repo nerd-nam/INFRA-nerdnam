@@ -102,20 +102,17 @@ if [ "$TARGET" = root ]; then node_count_args; else check_cluster; fi
 log "3. plan ($TARGET @ $(git rev-parse --short HEAD))"
 cd "$DIR"
 terraform plan -input=false -no-color -var-file="$VARS" ${EXTRA[@]+"${EXTRA[@]}"} -out="$PLAN" >/dev/null
-SUMMARY=$(terraform show -json "$PLAN" | jq -r '
-  [.resource_changes[] | select(.change.actions != ["no-op"] and .change.actions != ["read"])]
-  | map("  " + (.change.actions | join("+")) + "\t" + .address) | .[]')
-OUTPUTS=$(terraform show -json "$PLAN" | jq -r '[.output_changes // {} | to_entries[] | select(.value.actions != ["no-op"]) | .key] | join(", ")')
-if [ -z "$SUMMARY" ] && [ -z "$OUTPUTS" ]; then
+# CI(.github/workflows/terraform.yml)와 같은 요약: 동작·주소·바뀌는 속성 이름
+SUMMARY=$("$ROOT_DIR/scripts/tf-plan-summary.sh" "$PLAN")
+if [ -z "$SUMMARY" ]; then
   echo "변경 없음. 적용할 것이 없습니다."
   exit 0
 fi
-echo "${SUMMARY:-  (리소스 변경 없음)}"
-[ -n "$OUTPUTS" ] && echo "  output 변경: $OUTPUTS"
+sed 's/^/  /' <<<"$SUMMARY" | column -t -s $'\t'
 
 [ "$PLAN_ONLY" = 1 ] && { echo; echo "--plan-only: 적용하지 않고 끝냅니다."; exit 0; }
 
-if grep -qE '(^|[ +])delete' <<<"$SUMMARY"; then
+if grep -qE '^(delete|replace)' <<<"$SUMMARY"; then
   echo
   warn "삭제 또는 교체(delete)가 있습니다. 위 목록에서 무엇이 지워지는지 확인하세요."
   read -r -p "정말 적용하려면 'apply-with-delete' 를 입력하세요: " ans

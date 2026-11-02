@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageTerraformCiRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:DeleteRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::082139775699:role/nerdnam-dev-tf-plan",
+        "arn:aws:iam::082139775699:role/nerdnam-dev-tf-apply"
+      ]
+    },
+    {
+      "Sid": "PlanRoleOnlyReadOnlyAccess",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::082139775699:role/nerdnam-dev-tf-plan",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        }
+      }
+    },
+    {
+      "Sid": "ApplyRoleOnlyTerraformPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::082139775699:role/nerdnam-dev-tf-apply",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformStateDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformNetworkDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformEksDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformPlatformDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformWorkloadDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformObservabilityDev",
+            "arn:aws:iam::082139775699:policy/NerdnamTerraformCiDev"
+          ]
+        }
+      }
+    }
+  ]
+}
