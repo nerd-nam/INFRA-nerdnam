@@ -1,0 +1,5 @@
+apiVersion: v2
+name: nerdnam-load
+description: 부하 시험 대상·k6 스크립트(ConfigMap)와 load-test namespace 의 자원 상한. TestRun 은 testruns/ 를 운영자가 kubectl create 로 띄운다
+version: 0.1.0
+type: application

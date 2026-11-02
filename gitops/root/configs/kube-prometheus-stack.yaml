@@ -39,6 +39,8 @@ prometheus:
     ruleSelectorNilUsesHelmValues: false
     probeSelectorNilUsesHelmValues: false
     scrapeConfigSelectorNilUsesHelmValues: false
+    # 9단계 부하 시험: k6(load-test namespace)가 결과 지표를 /api/v1/write 로 밀어 넣는다. 클러스터 밖에는 열리지 않는다(ClusterIP).
+    enableRemoteWriteReceiver: true
     resources:
       requests: {cpu: 300m, memory: 1536Mi}
       limits: {memory: 3Gi}
@@ -147,6 +149,9 @@ grafana:
 
 kube-state-metrics:
   {{- toYaml $platform | nindent 2 }}
+  # 노드 역할(workload=app/platform/data)을 kube_node_labels{label_workload} 로 낸다. 부하 시험 대시보드가 노드를 역할별로 묶는다.
+  metricLabelsAllowlist:
+    - nodes=[workload]
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

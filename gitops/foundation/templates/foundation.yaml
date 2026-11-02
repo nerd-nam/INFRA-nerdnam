@@ -1,4 +1,4 @@
-{{- range list "nerdnam" "data" "monitoring" }}
+{{- range list "nerdnam" "data" "monitoring" "load-test" }}
 ---
 apiVersion: v1
 kind: Namespace
