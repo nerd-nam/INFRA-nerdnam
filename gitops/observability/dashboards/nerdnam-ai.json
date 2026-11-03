@@ -1,0 +1,554 @@
+{
+  "uid": "nerdnam-ai",
+  "title": "nerdnam AI 장애 재현",
+  "description": "AI 작업 몰림 재현(INFRA #19, ADR-0008). 위에서 아래로 부하 → 증상(BE) → 원인(Bedrock) → 확인(로그·trace). 시험은 TestRun 이름(ai-*, 최근이 위). BE·AI 패널은 시험 라벨이 없어 시간 범위로 구분한다 — load-test.sh 가 낸 링크는 시간 범위가 맞춰져 있다",
+  "tags": [
+    "nerdnam"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "testrun",
+        "label": "시험",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "description": "AI 시험 TestRun 이름(ai-analysis-…·ai-guide-…). 최근 7일, 최근에 끝난 시험이 위. 지난 시험을 고르면 시간 범위도 그 시험 시각으로 맞춘다",
+        "query": {
+          "query": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus{testrun_name=~\"ai-.*\"})[7d:1m]))))",
+          "refId": "testrun"
+        },
+        "definition": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus{testrun_name=~\"ai-.*\"})[7d:1m]))))",
+        "regex": "/testrun_name=\"([^\"]+)\"/",
+        "refresh": 1,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "부하 (k6) — 무엇을 보냈고 어떻게 끝났나",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "작업 결과 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (job, result) (increase(k6_ai_job_result_total{testrun_name=~\"$testrun\"}[1m]))",
+          "legendFormat": "{{job}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "AI 시험(ai-*)을 고른다"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "1분 동안 끝난 작업 수. completed·failed(BE 작업 실패), skipped(같은 공고 진행 중 409), timeout_k6(10분 넘게 안 끝남). 정상 단계와 몰림 단계를 비교한다",
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "작업 완료 시간 p50·p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (job) (rate(k6_ai_job_duration_seconds{testrun_name=~\"$testrun\"}[2m])))",
+          "legendFormat": "p50 {{job}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (job) (rate(k6_ai_job_duration_seconds{testrun_name=~\"$testrun\"}[2m])))",
+          "legendFormat": "p95 {{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "시작 요청부터 completed·failed 를 본 때까지(화면처럼 2.5초마다 조회). 작성 방향 몰림(저하형)에서 늘어나는 값",
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "실패 이유 (분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (failure_code) (increase(k6_ai_job_result_total{testrun_name=~\"$testrun\", result=\"failed\"}[1m]))",
+          "legendFormat": "{{failure_code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "실패 없음"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "gpu_unavailable(AI 서버 503: 한도·대기열), ai_error, timeout, internal, http_<코드>(시작 요청 자체가 실패). 분석 몰림(장애형)에서 gpu_unavailable 이 늘어난다",
+      "id": 4
+    },
+    {
+      "type": "row",
+      "title": "1. 증상 (BE) — 시간 범위로 구분(시험 라벨 없음)",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "AI 작업 큐·스레드",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(nerdnam_aijob_queue_size{namespace=\"nerdnam\", job=\"api\"})",
+          "legendFormat": "큐 대기"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(nerdnam_aijob_threads_active{namespace=\"nerdnam\", job=\"api\"})",
+          "legendFormat": "일하는 스레드"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(nerdnam_aijob_threads_max{namespace=\"nerdnam\", job=\"api\"})",
+          "legendFormat": "스레드 상한"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "BE 가 AI 작업을 처리하는 스레드와 대기열. 큐가 쌓이면 작업 완료 시간이 늘어난다",
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "AI 작업 진행·최근 실패",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(nerdnam_aijob_in_progress{namespace=\"nerdnam\", job=\"api\"})",
+          "legendFormat": "진행 중"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(nerdnam_aijob_failed_recent{namespace=\"nerdnam\", job=\"api\"})",
+          "legendFormat": "최근 5분 실패"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "서비스 대시보드와 같은 지표. 최근 실패가 3 을 넘는 상태가 10분이면 NerdnamAiJobFailures 알림",
+      "id": 7
+    },
+    {
+      "type": "row",
+      "title": "2. 원인 (Bedrock·AI 서버) — 1분 창(몰림 시작이 빨리 보이게)",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Bedrock 호출 (종류·결과별, 분당)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (operation, result) (rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[1m])) * 60",
+          "legendFormat": "{{operation}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "converse = LLM(Nova), invoke_model = 임베딩(Titan). throttle 이 오르면 Bedrock 분당 한도",
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "재시도 비율 (시도 ÷ 호출)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (operation) (rate(nerdnam_ai_bedrock_attempts_total{namespace=\"nerdnam\", job=\"ai\"}[1m])) / sum by (operation) (rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[1m]))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "1 이면 재시도 없음. 1 보다 크면 Bedrock 이 throttle 을 걸고 AI 서버가 다시 보내는 중",
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "대기열 대기 p95·거절",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(nerdnam_ai_bedrock_queue_wait_seconds_bucket{namespace=\"nerdnam\", job=\"ai\"}[1m])))",
+          "legendFormat": "대기 p95 {{kind}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (kind) (increase(nerdnam_ai_bedrock_queue_rejected_total{namespace=\"nerdnam\", job=\"ai\"}[1m]))",
+          "legendFormat": "거절(1분) {{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "AI 서버 안에서 동시 호출 자리를 기다린 시간과, 대기열이 차거나 시간 상한을 넘어 503 으로 거절한 수",
+      "id": 11
+    },
+    {
+      "type": "timeseries",
+      "title": "AI 요청 p95 (경로별)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(nerdnam_ai_request_duration_seconds_bucket{namespace=\"nerdnam\", job=\"ai\"}[1m])))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "BE → AI HTTP 요청 처리 시간. 읽기 제한(/embed·/requirements/extract 120초, /match 300초 등) 10초 전에 AI 가 스스로 503·504 로 끝낸다",
+      "id": 12
+    },
+    {
+      "type": "row",
+      "title": "3. 확인 (로그·trace)",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": [],
+      "id": 13
+    },
+    {
+      "type": "logs",
+      "title": "AI 로그 (Bedrock)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{namespace=\"nerdnam\", container=\"ai\"} |~ \"bedrock (embed|llm)\""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      },
+      "description": "AI 서버의 Bedrock 호출 로그(retries·busy·over budget·connection closed). trace_id 를 누르면 Tempo 로 간다",
+      "id": 14
+    },
+    {
+      "type": "logs",
+      "title": "BE AI 작업 실패 로그",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{namespace=\"nerdnam\", container=\"api\"} |= \"AI job\" |= \"failed\""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      },
+      "description": "BE 의 \"AI job <id> failed: <이유> (<호출>)\". 실패 이유와 어느 AI 호출에서 실패했는지",
+      "id": 15
+    },
+    {
+      "type": "table",
+      "title": "throttle 난 trace (Tempo)",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ span.bedrock.result = \"throttle\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {},
+      "description": "Bedrock throttle 이 난 trace. trace ID 를 누르면 BE → AI → Bedrock 전체 흐름을 본다(trace 는 3일 보관)",
+      "id": 16
+    }
+  ]
+}
