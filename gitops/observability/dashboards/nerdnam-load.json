@@ -24,14 +24,14 @@
           "type": "prometheus",
           "uid": "prometheus"
         },
-        "description": "k6-operator TestRun 이름(testrun_name). 최근에 끝난 시험이 위. scripts/load-test.sh 가 낸 링크는 그 시험이 골라져 열린다",
+        "description": "k6-operator TestRun 이름(testrun_name). 최근 7일(Prometheus 보존) 안의 시험, 최근에 끝난 시험이 위. 지난 시험을 고르면 오른쪽 위 시간 범위도 그 시험 시각으로 맞춘다(scripts/load-test.sh 가 낸 링크는 둘 다 맞춰져 있다)",
         "query": {
-          "query": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[$__range:30s]))))",
+          "query": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[7d:1m]))))",
           "refId": "testrun"
         },
-        "definition": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[$__range:30s]))))",
+        "definition": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[7d:1m]))))",
         "regex": "/testrun_name=\"([^\"]+)\"/",
-        "refresh": 2,
+        "refresh": 1,
         "sort": 0,
         "multi": false,
         "includeAll": false,
