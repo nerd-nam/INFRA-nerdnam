@@ -8,7 +8,7 @@
 //
 // SCENARIO
 //   smoke        일정 도착률 RATE/초(기본 2), DURATION(기본 2m). 배포 직후 경로 확인용
-//   concurrency  동시 사용자(VU) 수를 계단식으로 올린다. 각 VU 는 한 바퀴 돌고 THINK 초(기본 1) 쉰다
+//   concurrency  동시 사용자(VU) 수를 계단식으로 올린다. 각 VU 는 한 바퀴 돌고 THINK 초(기본 0.5) 쉰다
 //   rate         초당 시작하는 반복 수(요청량)를 계단식으로 올린다. 서버가 느려져도 요청량은 줄지 않는다
 // STAGES   "목표:시간" 쉼표 목록. concurrency 는 VU 수, rate 는 초당 반복 수. 예: "10:1m,10:3m,0:30s"
 // SESSION  로그인한 사용자 경로까지 부를 때 시험용 계정의 SESSION 쿠키 값(저장소·채팅에 남기지 않는다)
@@ -20,14 +20,16 @@ const BASE = (__ENV.BASE_URL || '').replace(/\/$/, '');
 if (!BASE) throw new Error('BASE_URL 을 주세요 (예: -e BASE_URL=https://nerdnam.example.com)');
 const SESSION = __ENV.SESSION || '';
 const SCENARIO = __ENV.SCENARIO || 'smoke';
-const THINK = Number(__ENV.THINK || 1);
+const THINK = Number(__ENV.THINK || 0.5);
 const TEST_ID = __ENV.TEST_ID || `${new Date().toISOString().slice(0, 16)}-${SCENARIO}`;
 const EXPECT_401 = http.expectedStatuses(401);
 
-// 각 단계는 앞 1개(올리는 구간) + 뒤 1개(유지 구간). 유지 구간의 대시보드 값을 읽는다.
+// 각 단계는 앞 1개(올리는 구간) + 뒤 1개(유지 구간). 유지 구간(1분)의 대시보드 값을 읽는다.
+// 대시보드는 최근 1분 평균이라 유지 구간을 1분보다 줄이면 앞 단계 값이 섞인다.
+// 서버(api·web 각 1개)가 버거워지는 지점을 넘도록 잡았다. 마지막 단계에서는 느려지거나 실패하는 게 보통이다.
 const DEFAULT_STAGES = {
-  concurrency: '10:1m,10:3m,20:1m,20:3m,40:1m,40:3m,80:1m,80:3m,0:1m',
-  rate: '2:1m,2:3m,5:1m,5:3m,10:1m,10:3m,20:1m,20:3m,0:1m',
+  concurrency: '50:20s,50:1m,100:20s,100:1m,200:20s,200:1m,300:20s,300:1m,0:20s',
+  rate: '25:20s,25:1m,50:20s,50:1m,100:20s,100:1m,150:20s,150:1m,0:20s',
 };
 
 function stages(text) {
@@ -55,7 +57,7 @@ const SCENARIOS = {
   }),
   rate: () => {
     // 서버가 느려지면 같은 요청량을 내기 위해 VU 가 늘어난다. 이 값에 닿으면 k6 가 dropped_iterations 를 센다.
-    const maxVUs = Number(__ENV.MAX_VUS || 300);
+    const maxVUs = Number(__ENV.MAX_VUS || 500);
     return {
       executor: 'ramping-arrival-rate',
       startRate: 0,
@@ -70,8 +72,9 @@ if (!SCENARIOS[SCENARIO]) throw new Error(`SCENARIO 는 ${Object.keys(SCENARIOS)
 
 export const options = {
   scenarios: { [SCENARIO]: SCENARIOS[SCENARIO]() },
-  // 모든 지표에 붙는다. Prometheus 에서 실행 하나를 고르는 라벨이다.
-  tags: { testid: TEST_ID },
+  // 모든 지표에 붙는다. testid 는 실행 하나를 고르는 라벨, mode 는 시험 종류(k6_vus 처럼 scenario 라벨이 없는 지표도 나눌 수 있게).
+  // VU 의 뜻이 시험마다 다르다: concurrency 는 접속해 있는 사용자(쉬는 중 포함), rate·smoke 는 응답을 기다리는 작업자.
+  tags: { testid: TEST_ID, mode: SCENARIO },
   // 측정 전 시작값. 첫 실측 뒤 조정한다. 계단식 시험은 한도를 찾는 게 목적이라 마지막 단계에서 넘는 게 보통이다.
   thresholds: {
     checks: ['rate>0.99'],

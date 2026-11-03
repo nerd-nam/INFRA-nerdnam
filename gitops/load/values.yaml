@@ -3,8 +3,6 @@ environment: {}
 
 # k6 결과 지표를 받는 곳. kube-prometheus-stack 의 Prometheus(enableRemoteWriteReceiver)
 prometheusWriteUrl: http://monitoring-prometheus.monitoring.svc.cluster.local:9090/api/v1/write
-# 응답 시간(Trend)을 Prometheus 로 보낼 때 남길 통계. 이름이 k6_http_req_duration_p95 처럼 된다(단위 초)
-trendStats: avg,max,p(95),p(99)
 
 # load-test namespace 상한. k6 Pod 가 platform 노드(Prometheus·Grafana 와 같은 노드)를 다 먹지 않게 한다.
 # runner 1개(500m / 512Mi, limit 1Gi) + initializer·starter 를 넉넉히 덮는다.
