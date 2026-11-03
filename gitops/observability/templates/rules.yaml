@@ -80,10 +80,9 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: 'AI 작업 큐({{"{{"}} $labels.stream {{"}}"}})에서 꺼낸 뒤 끝나지 않은 작업이 줄지 않는다. 처리 중 멈춤·회수(XAUTOCLAIM) 문제'
-        # nerdnam_ai_queue_up 은 라벨 없는 지표라 큐 작업자를 끈 동안에도 0 으로 나온다. 작업자가 한 번이라도 돌아
-        # 큐 지표(queue_lag)를 낸 때만 본다(작업자가 처음부터 접속하지 못하면 NerdnamAiQueueStuck 도 울리지 않는다 — AI #54 에 알림).
+        # nerdnam_ai_queue_up 은 AI_QUEUE_ENABLED=true 일 때만 나온다(AI 5783c15). 꺼져 있으면 지표가 없어 울리지 않는다.
         - alert: NerdnamAiQueueDown
-          expr: max(nerdnam_ai_queue_up{namespace="nerdnam", job="ai"}) == 0 and on() count(nerdnam_ai_queue_lag{namespace="nerdnam", job="ai"}) > 0
+          expr: max(nerdnam_ai_queue_up{namespace="nerdnam", job="ai"}) == 0
           for: 5m
           labels: {severity: warning}
           annotations:
