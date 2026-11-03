@@ -683,6 +683,9 @@ def check_load(local, upstream, schemas):
     for name, run in runs.items():
         parts = [run['spec'][p]['resources'] for p in ('runner', 'initializer', 'starter')]
         assert sum(quantity(r['requests']['cpu']) for r in parts) <= quantity(hard['requests.cpu']), name
+        # 시험은 하나씩: runner 두 개가 동시에 들어가면 안 된다(부하가 겹쳐 결과를 읽을 수 없다).
+        runner_cpu = min(quantity(r['spec']['runner']['resources']['requests']['cpu']) for r in runs.values())
+        assert 2 * runner_cpu > quantity(hard['requests.cpu']), f'{name}: quota must not fit two runners (one test at a time)'
         assert sum(quantity(r['requests']['memory']) for r in parts) <= quantity(hard['requests.memory']), name
         assert sum(quantity(r['limits']['memory']) for r in parts) <= quantity(hard['limits.memory']), name
 
