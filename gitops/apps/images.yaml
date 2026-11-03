@@ -4,7 +4,7 @@
 # 형식: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/<web|api|ai>@sha256:<64자리>
 # 비어 있으면 렌더링이 실패한다(첫 이미지가 push 되기 전에는 nerdnam-apps 를 sync 하지 않는다).
 images:
-  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:7561e2784183148ce0a810edec2ac8b9a55aa9561c75af69df527b288a474453  # FE 79bf211 (2026-11-03, Merge pull request #12 from nerd-nam/ci/infra-image-pr)
+  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:01bcdb160d7ee43528dc26f8434326fd31d4dab6172996efc49166a3217d5b68  # FE 3da158b (2026-11-03, 로그인 안 한 방문마다 Redis 에 빈 세션이 쌓이지 않게)
 
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:65f32e0a28f32ac221d8bb290d3f500498601c4cbfa1bacb45823f102c8ae7c6  # BE 2bb3eee (2026-11-03, Merge pull request #64 from nerd-nam/fix/ai-retry-delay)
 
