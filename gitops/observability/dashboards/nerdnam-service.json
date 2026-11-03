@@ -985,12 +985,60 @@
       "id": 33
     },
     {
+      "type": "timeseries",
+      "title": "Bedrock 실패 비율 (결과별: throttle·timeout·error)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\", result!=\"ok\"}[5m])) / ignoring(result) group_left sum(rate(nerdnam_ai_bedrock_calls_total{namespace=\"nerdnam\", job=\"ai\"}[5m]))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {},
+      "id": 34,
+      "description": "Bedrock 호출 중 실패 비율을 결과별로. throttle 이 오르면 Bedrock 호출 한도(재시도 비율·대기열 대기와 같이 본다), timeout 은 응답 지연, error 는 권한·모델·입력 문제. 대기열 거절(503)은 Bedrock 에 가지 않아 여기 없다(대기열 패널)."
+    },
+    {
       "type": "row",
       "title": "Pod",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 76,
         "w": 24,
         "h": 1
       },
@@ -1006,7 +1054,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 77,
         "w": 12,
         "h": 8
       },
@@ -1048,7 +1096,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 69,
+        "y": 77,
         "w": 12,
         "h": 8
       },
@@ -1081,7 +1129,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 77,
+        "y": 85,
         "w": 12,
         "h": 8
       },
@@ -1112,7 +1160,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 77,
+        "y": 85,
         "w": 12,
         "h": 8
       },
