@@ -724,11 +724,18 @@ def check_load(local, upstream, schemas):
         base = next((e for e in spec['initializer']['env'] if e['name'] == 'BASE_URL'), None)
         assert base and base['valueFrom']['configMapKeyRef'] == {'name': 'k6-env', 'key': 'BASE_URL'}, f'{where}: BASE_URL in env (not only envFrom)'
         scenario = next(e['value'] for e in spec['runner']['env'] if e['name'] == 'SCENARIO')
-        assert scenario == path.stem and f"  {scenario}: " in scripts['nerdnam.js'], f'{where}: scenario'
+        if path.stem.startswith('ai-'):
+            # AI 장애 재현(INFRA #19): ai.js, SCENARIO = 파일 이름에서 ai- 를 뺀 것, 공고 id 는 실행 때 넣는다(load-test.sh --env)
+            assert spec['script']['configMap']['file'] == 'ai.js', f'{where}: ai.js'
+            assert scenario == path.stem[3:] and f"{scenario}: {{" in scripts['ai.js'], f'{where}: scenario'
+            assert any(e['name'] == 'POSTING_IDS' for e in spec['runner']['env']), f'{where}: POSTING_IDS'
+        else:
+            assert spec['script']['configMap']['file'] == 'nerdnam.js', where
+            assert scenario == path.stem and f"  {scenario}: " in scripts['nerdnam.js'], f'{where}: scenario'
         session = next(e for e in spec['runner']['env'] if e['name'] == 'SESSION')
         assert 'value' not in session and session['valueFrom']['secretKeyRef']['optional'] is True, f'{where}: SESSION only from a Secret'
         runs[path.stem] = run
-    assert set(runs) == {'smoke', 'concurrency', 'rate'}
+    assert set(runs) == {'smoke', 'concurrency', 'rate', 'ai-analysis', 'ai-guide'}
 
     # 시험 하나가 뜨는 동안 Pod 전체(runner + initializer + starter)가 quota 안에 들어야 한다.
     hard = docs['load-test']['spec']['hard']

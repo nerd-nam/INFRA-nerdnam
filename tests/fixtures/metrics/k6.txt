@@ -18,3 +18,6 @@ k6_iteration_duration_seconds
 k6_iterations_total
 k6_vus
 k6_vus_max
+# AI 장애 재현(ai.js) 사용자 지표. 이름 규칙(Counter → _total, 시간 Trend native histogram → _seconds)으로 넣었다. 첫 클러스터 실행에서 확인한다
+k6_ai_job_duration_seconds
+k6_ai_job_result_total

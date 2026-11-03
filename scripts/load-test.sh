@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # 부하 시험(k6-operator TestRun) 실행 도우미. 사용법·결과 읽는 법: docs/부하-시험-실행.md
 #
-#   scripts/load-test.sh run <smoke|rate|concurrency> [옵션]   시험 하나를 끝까지 돌리고 요약·Grafana 링크를 낸다
+#   scripts/load-test.sh run <smoke|rate|concurrency|ai-analysis|ai-guide> [옵션]
+#                                    시험 하나를 끝까지 돌리고 요약·Grafana 링크를 낸다. ai-* 는 실제 Bedrock 을 부른다(요금)
 #       --stages "<목표:시간,...>"   rate·concurrency 단계 바꾸기 (예: "80:20s,80:1m,100:20s,100:1m,0:20s")
+#       --env 이름=값                 TestRun 환경 변수 바꾸기(여러 번). ai-* 는 POSTING_IDS 필수 (예: --env POSTING_IDS=3,4,5)
 #       --session                    로그인 경로까지(시험 계정 SESSION 쿠키를 입력받아 Secret 으로 넣고 끝나면 지운다)
 #       --keep                       끝난 뒤 TestRun 을 지우지 않는다(로그를 더 볼 때)
 #       --dry-run                    만들 TestRun 을 서버에서 검사만 하고 끝낸다(부하 없음)
@@ -26,7 +28,7 @@ kc() { kubectl --context "$CTX" "$@"; }
 log() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m%s\033[0m\n' "$*"; }
 die() { printf '\n\033[31m중단: %s\033[0m\n' "$*" >&2; exit 1; }
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 # "50:20s,50:1m" 같은 단계 목록의 전체 시간(초)
 stages_seconds() {
@@ -70,11 +72,14 @@ preflight() {
 
 cmd_run() {
   SCENARIO="${1:-}"; shift || true
-  case "$SCENARIO" in smoke|rate|concurrency) ;; *) usage ;; esac
-  local stages="" session=0 keep=0 dry=0 yes=0
+  case "$SCENARIO" in smoke|rate|concurrency|ai-analysis|ai-guide) ;; *) usage ;; esac
+  local stages="" session=0 keep=0 dry=0 yes=0 extra='{}'
   while [ $# -gt 0 ]; do
     case "$1" in
       --stages) stages="${2:-}"; shift 2 ;;
+      --env)
+        [[ "${2:-}" =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]] || die "--env 형식: 이름=값 (예: POSTING_IDS=3,4,5)"
+        extra=$(jq --arg k "${BASH_REMATCH[1]}" --arg v "${BASH_REMATCH[2]}" '. + {($k): $v}' <<<"$extra"); shift 2 ;;
       --session) session=1; shift ;;
       --keep) keep=1; shift ;;
       --dry-run) dry=1; shift ;;
@@ -83,7 +88,7 @@ cmd_run() {
     esac
   done
   if [ -n "$stages" ]; then
-    [ "$SCENARIO" != smoke ] || die "smoke 는 단계가 없습니다(RATE·DURATION 고정)."
+    [[ "$SCENARIO" =~ ^(rate|concurrency)$ ]] || die "--stages 는 rate·concurrency 만 받습니다(ai-* 는 --env RATE_NORMAL=·RATE_SURGE=)."
     [[ "$stages" =~ ^([0-9]+:[0-9]+[smh],)*[0-9]+:[0-9]+[smh]$ ]] || die "--stages 형식: \"목표:시간,목표:시간,...\" (시간은 20s·1m·1h)"
   fi
 
@@ -91,21 +96,40 @@ cmd_run() {
 
   # 대시보드는 TestRun 이름(testrun_name, k6-operator 가 지표에 붙임)으로 시험을 고른다. 이름은 만든 뒤에 정해진다.
   local manifest
-  manifest=$(kc create --dry-run=client -f "gitops/load/testruns/$SCENARIO.yaml" -o json | jq --arg st "$stages" '
+  manifest=$(kc create --dry-run=client -f "gitops/load/testruns/$SCENARIO.yaml" -o json | jq --arg st "$stages" --argjson extra "$extra" '
     def setenv($n; $v): map(select(.name != $n)) + [{name: $n, value: $v}];
-    if $st != "" then (.spec.runner.env |= setenv("STAGES"; $st) | .spec.initializer.env |= setenv("STAGES"; $st)) else . end')
+    (if $st != "" then {STAGES: $st} else {} end) + $extra as $set
+    | reduce ($set | to_entries[]) as $e (.; .spec.runner.env |= setenv($e.key; $e.value) | .spec.initializer.env |= setenv($e.key; $e.value))')
+  local ai=0; [[ "$SCENARIO" == ai-* ]] && ai=1
+  if [ "$ai" = 1 ] && [ "$dry" != 1 ]; then
+    [ -n "$(jq -r '.spec.runner.env[] | select(.name=="POSTING_IDS") | .value' <<<"$manifest")" ] \
+      || die "ai-* 는 공고 id 가 필요합니다: --env POSTING_IDS=3,4,5 (분석이 한 번 끝난 시험 계정 공고)"
+    [ "$session" = 1 ] || kc -n "$NS" get secret "$SESSION_SECRET" >/dev/null 2>&1 \
+      || die "ai-* 는 시험 계정 로그인이 필요합니다: --session"
+  fi
 
   local env_stages env_duration est target
   env_stages=$(jq -r '.spec.runner.env[] | select(.name=="STAGES") | .value' <<<"$manifest")
   env_duration=$(jq -r '.spec.runner.env[] | select(.name=="DURATION") | .value' <<<"$manifest")
-  if [ -n "$env_stages" ]; then est=$(stages_seconds "$env_stages"); else est=$(duration_seconds "${env_duration:-2m}"); fi
+  local env_of; env_of() { jq -r --arg n "$1" '.spec.runner.env[] | select(.name==$n) | .value' <<<"$manifest"; }
+  local job_timeout=0
+  if [ "$ai" = 1 ]; then
+    est=$(( $(duration_seconds "$(env_of DURATION_NORMAL | sed 's/^$/5m/')") + $(duration_seconds "$(env_of PAUSE | sed 's/^$/2m/')") + $(duration_seconds "$(env_of DURATION_SURGE | sed 's/^$/5m/')") ))
+    job_timeout=$(env_of JOB_TIMEOUT_SECONDS); job_timeout=${job_timeout:-600}
+  elif [ -n "$env_stages" ]; then est=$(stages_seconds "$env_stages"); else est=$(duration_seconds "${env_duration:-2m}"); fi
   target=$(kc -n "$NS" get configmap k6-env -o jsonpath='{.data.BASE_URL}')
 
   log "2. 시험 내용"
   echo "시험      : $SCENARIO"
   echo "대상      : $target (실제 서비스)"
-  [ -n "$env_stages" ] && echo "단계      : $env_stages" || echo "고정      : 초당 반복 $(jq -r '.spec.runner.env[] | select(.name=="RATE") | .value' <<<"$manifest")회, ${env_duration}"
-  echo "예상 시간 : 약 $(( (est + 59) / 60 ))분 (+ 준비 1분)"
+  if [ "$ai" = 1 ]; then
+    echo "흐름      : 정상 분당 $(env_of RATE_NORMAL | sed "s/^$/기본/")건 → 쉼 → 몰림 분당 $(env_of RATE_SURGE | sed "s/^$/기본/")건 (기본: analysis 2→5, guide 3→6)"
+    echo "공고      : $(env_of POSTING_IDS)"
+    echo "예상 시간 : 약 $(( (est + 59) / 60 ))분 + 남은 작업 마무리 최대 $(( job_timeout / 60 ))분 (+ 준비 1분)"
+  else
+    [ -n "$env_stages" ] && echo "단계      : $env_stages" || echo "고정      : 초당 반복 $(env_of RATE)회, ${env_duration}"
+    echo "예상 시간 : 약 $(( (est + 59) / 60 ))분 (+ 준비 1분)"
+  fi
   echo "로그인 경로: $([ $session = 1 ] && echo 포함 || echo '제외(비로그인 경로만)')"
 
   if [ "$dry" = 1 ]; then
@@ -114,7 +138,12 @@ cmd_run() {
   fi
 
   if [ "$yes" != 1 ]; then
-    [ "$SCENARIO" = smoke ] || warn "마지막 단계는 일부러 서버 한계를 넘깁니다. 시험 중에는 실제 사용자도 느려질 수 있습니다."
+    if [ "$ai" = 1 ]; then
+      warn "실제 Bedrock 을 부릅니다(요금: analysis 약 35건 / guide 약 225회). 실행 시간대를 팀에 공지했는지, 문서 업로드·다른 AI 사용을 멈췄는지 확인하세요."
+      warn "몰림 단계에서 AI 작업이 실패하거나 밀리는 것이 목적입니다(재현). 한동안 쉬던 뒤라면 시험 직전 AI 요청 몇 개로 데우세요."
+    elif [ "$SCENARIO" != smoke ]; then
+      warn "마지막 단계는 일부러 서버 한계를 넘깁니다. 시험 중에는 실제 사용자도 느려질 수 있습니다."
+    fi
     read -r -p "시작할까요? [y/N] " ans
     [[ "$ans" =~ ^[yY]$ ]] || die "취소했습니다."
   fi
@@ -143,7 +172,7 @@ cmd_run() {
   local start; start=$(date +%s)
   name=$(kc create -f - -o jsonpath='{.metadata.name}' <<<"$manifest")
   echo "만듦: $name   (대시보드 '시험' 에서 이 이름을 고른다. 멈추려면 Ctrl+C)"
-  local stage prev="" waited limit=$((est + 300))
+  local stage prev="" waited limit=$((est + job_timeout + 300))
   while :; do
     stage=$(kc -n "$NS" get testrun "$name" -o jsonpath='{.status.stage}' 2>/dev/null || echo "")
     waited=$(( $(date +%s) - start ))
@@ -171,7 +200,8 @@ cmd_run() {
   kc -n "$NS" logs -l "k6_cr=$name,runner=true" --tail=45 2>/dev/null || warn "runner 로그를 읽지 못했습니다."
 
   log "5. 결과 (Grafana)"
-  echo "$GRAFANA/d/$DASHBOARD_UID?var-testrun=$name&from=$(( (start - 60) * 1000 ))&to=$(( (end + 60) * 1000 ))"
+  local dash=$DASHBOARD_UID; [ "$ai" = 1 ] && dash=nerdnam-ai
+  echo "$GRAFANA/d/$dash?var-testrun=$name&from=$(( (start - 60) * 1000 ))&to=$(( (end + 60) * 1000 ))"
   echo "읽는 법: docs/부하-시험-실행.md 4절. BE 패널은 30초 늦게 따라온다."
 
   trap - INT TERM
