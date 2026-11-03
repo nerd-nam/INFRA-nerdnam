@@ -6,6 +6,6 @@
 images:
   web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:eac6c44a28f3dfafbad2cfc6d526e236c731d02bfdea6cca07f0e2e561d75d73  # FE e1c7aa9 (2026-11-03, fix(ai-job): gpu_unavailable 문구를 연결 실패로 (요청 몰림은 503 AI_UNAVAILABLE 로 따로 온다, SPEC PR )
 
-  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:a421dc6a803e05af8fb899affa9182af0da3f7d0a9df195cc7a901418ff478df  # BE 69babc9 (2026-11-03, Merge pull request #68 from nerd-nam/feat/66-ai-queue)
+  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:0b65df35f87dd1b7f6d80b6d4fe0d8827e0f61ed6daf98fff2517791dfababc0  # BE 22b53f6 (2026-11-03, Merge pull request #70 from nerd-nam/test/66-queue-contract)
 
   ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:481c557c19100c5b633a04034605566e6a4060d4639b4b0ae4f2390d873abd48  # AI a0b1c60 (2026-11-03, Merge pull request #57 from nerd-nam/fix/llm-empty-response)
