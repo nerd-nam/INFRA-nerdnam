@@ -19,7 +19,7 @@
 | Secret JSON 4개 | Secrets Manager (1단계 이후) | 아래 3절 |
 | 이미지 digest 3개 | `gitops/apps/images.yaml` PR | 앱 CI 가 자동으로 연다(GitHub App 준비 후, [이미지-배포-PR.md](이미지-배포-PR.md)). 첫 이미지는 실행 요약에서 복사 |
 | OAuth redirect URI 등록 | Google·Kakao 콘솔 | `https://<app_hostname>/login/oauth2/code/{google,kakao}` |
-| 알림 수신 채널 | 미정 | 정해질 때까지 Alertmanager UI만 |
+| 알림 수신 채널 | Discord 웹훅 URL → Secrets Manager `nerdnam/dev/monitoring` 키 `alertmanager-discord-webhook-url` | [알림-Discord.md](알림-Discord.md) |
 
 ## 1. AWS 루트 (VPC·EKS·platform·workload·observability)
 

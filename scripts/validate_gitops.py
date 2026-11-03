@@ -5,6 +5,7 @@ No kubectl or AWS mutation is executed. --fetch downloads pinned public charts
 into a cache, verifies their digests, then uses the same checks as offline mode.
 """
 import argparse
+import base64
 import hashlib
 import json
 import re
@@ -163,6 +164,7 @@ def main():
     assert any(x['kind'] == 'Certificate' for x in lbc_docs), 'LBC webhook certificate comes from cert-manager'
     obs_count = check_observability(local, upstream)
     admin_count = check_admin_access(local, upstream)
+    check_alert_routing(local, upstream)
     testruns = check_load(local, upstream, schemas)
 
     by_kind = {doc['kind']: doc for doc in local['sample']}
@@ -191,6 +193,8 @@ def main():
     print('PASS: NLB/TLS, secret boundaries, storage retention and missing-input checks')
     print(f'PASS: admin UIs ({admin_count}): subdomain Ingress -> IP allowlist Middleware (= admin CIDRs) -> ClusterIP service, '
           'NLB Proxy Protocol trusted only from public subnet, Grafana root_url, Argo CD TLS at Traefik')
+    print('PASS: alerts -> Discord: webhook URL only from file (ExternalSecret alertmanager-discord, optional volume), '
+          'critical/warning routed, Watchdog/InfoInhibitor/info dropped')
     print(f'PASS: data layer ({data_count} StatefulSets): placement, PVC retention, pinned images, '
           'pod security, probes, secret keys, quota and BE<->data network policies')
     print(f'PASS: observability ({obs_count} scrape targets): platform placement incl. Prometheus/Alertmanager, retained PVCs, '
@@ -302,6 +306,33 @@ def check_admin_access(local, upstream):
     ini = next(x for x in upstream['kube-prometheus-stack'] if x['kind'] == 'ConfigMap' and x['metadata']['name'] == 'grafana')['data']['grafana.ini']
     assert f'root_url = https://{env["grafanaHostname"]}' in ini, 'Grafana root_url'
     return len(ingresses)
+
+
+def check_alert_routing(local, upstream):
+    """Alertmanager → Discord. 웹훅 URL 은 Secret 파일로만 읽고(설정·Git 에 없음), 그 Secret 은 키 하나만 가져온다."""
+    stack = upstream['kube-prometheus-stack']
+    secret = next(x for x in stack if x['kind'] == 'Secret' and x['metadata']['name'] == 'alertmanager-monitoring')
+    raw = {k: base64.b64decode(v).decode() for k, v in (secret.get('data') or {}).items()}
+    config = yaml.safe_load(raw['alertmanager.yaml'])
+    assert 'discord.tmpl' in raw and '{{ define "nerdnam.discord.message" }}' in raw['discord.tmpl'], 'discord template rendered (Helm tpl escaping)'
+    receivers = {r['name']: r for r in config['receivers']}
+    (discord,) = receivers['discord']['discord_configs']
+    assert 'webhook_url' not in discord and discord['send_resolved'] is True, 'Discord URL must come from a file, not config'
+    path = discord['webhook_url_file']
+    am = next(x for x in stack if x['kind'] == 'Alertmanager')['spec']
+    mount = next(m for m in am['volumeMounts'] if path.startswith(m['mountPath'].rstrip('/') + '/'))
+    volume = next(v for v in am['volumes'] if v['name'] == mount['name'])
+    assert volume['secret'].get('optional') is True, 'Alertmanager must start before the webhook key exists'
+    external = next(x for x in local['secrets'] if x['metadata']['name'] == volume['secret']['secretName'])
+    assert external['metadata']['namespace'] == 'monitoring' and 'dataFrom' not in external['spec'], 'only the webhook key'
+    (item,) = external['spec']['data']
+    assert path.endswith('/' + item['secretKey']), 'file name = secret key'
+    monitoring_arn = next(x for x in local['secrets'] if x['metadata']['name'] == 'monitoring-secrets')['spec']['dataFrom'][0]['extract']['key']
+    assert item['remoteRef']['key'] == monitoring_arn
+    route = config['route']
+    assert route['receiver'] == 'discord'
+    dropped = [r for r in route['routes'] if r['receiver'] == 'null']
+    assert any('Watchdog' in m for r in dropped for m in r['matchers']), 'Watchdog (always firing) must not page'
 
 
 def check_apps(local):

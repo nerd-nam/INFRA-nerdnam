@@ -69,16 +69,50 @@ alertmanager:
           accessModes: [ReadWriteOnce]
           resources:
             requests: {storage: 2Gi}
-  # 수신 채널(Slack·메일 등)은 아직 정하지 않았다. 정해지면 Secret 으로 넣는다. 지금은 Alertmanager UI 에서만 본다.
+    # Discord 웹훅 URL(ExternalSecret alertmanager-discord). optional: 키가 아직 없어도 Alertmanager 는 뜬다.
+    volumes:
+      - name: discord-webhook
+        secret:
+          secretName: alertmanager-discord
+          optional: true
+    volumeMounts:
+      - name: discord-webhook
+        mountPath: /etc/alertmanager/discord
+        readOnly: true
+  # 알림 → Discord 채널(웹훅). URL 은 파일로 읽어 설정·Git 에 남지 않는다(docs/알림-Discord.md).
+  # critical·warning 만 보낸다. Watchdog(늘 울리는 생존 신호)·InfoInhibitor·info 는 보내지 않는다.
   config:
     route:
-      receiver: "null"
+      receiver: discord
       group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
       routes:
-        - matchers: [alertname = "Watchdog"]
+        - matchers: [alertname =~ "Watchdog|InfoInhibitor"]
           receiver: "null"
+        - matchers: [severity = "info"]
+          receiver: "null"
+        - matchers: [severity = "critical"]
+          receiver: discord
+          repeat_interval: 4h
     receivers:
       - name: "null"
+      - name: discord
+        discord_configs:
+          - webhook_url_file: /etc/alertmanager/discord/webhook-url
+            send_resolved: true
+            title: '{{ "{{" }} template "nerdnam.discord.title" . {{ "}}" }}'
+            message: '{{ "{{" }} template "nerdnam.discord.message" . {{ "}}" }}'
+    templates:
+      - /etc/alertmanager/config/*.tmpl
+  templateFiles:
+    discord.tmpl: |-
+      {{"{{"}} define "nerdnam.discord.title" {{"}}"}}[{{"{{"}} if eq .Status "firing" {{"}}"}}발생 {{"{{"}} .Alerts.Firing | len {{"}}"}}건{{"{{"}} else {{"}}"}}해결{{"{{"}} end {{"}}"}}] {{"{{"}} .CommonLabels.alertname {{"}}"}}{{"{{"}} with .CommonLabels.severity {{"}}"}} · {{"{{"}} . {{"}}"}}{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}}
+      {{"{{"}} define "nerdnam.discord.message" {{"}}"}}{{"{{"}} range .Alerts {{"}}"}}{{"{{"}} if eq .Status "firing" {{"}}"}}🔴{{"{{"}} else {{"}}"}}🟢{{"{{"}} end {{"}}"}} **{{"{{"}} .Labels.alertname {{"}}"}}**{{"{{"}} with .Labels.namespace {{"}}"}} · `{{"{{"}} . {{"}}"}}`{{"{{"}} end {{"}}"}}{{"{{"}} with .Labels.pod {{"}}"}} · `{{"{{"}} . {{"}}"}}`{{"{{"}} end {{"}}"}}
+      {{"{{"}} with .Annotations.summary {{"}}"}}{{"{{"}} . {{"}}"}}{{"{{"}} else {{"}}"}}{{"{{"}} with .Annotations.description {{"}}"}}{{"{{"}} . {{"}}"}}{{"{{"}} end {{"}}"}}{{"{{"}} end {{"}}"}}
+      시작 {{"{{"}} .StartsAt.UTC.Format "01-02 15:04" {{"}}"}} UTC{{"{{"}} if eq .Status "resolved" {{"}}"}} · 해결 {{"{{"}} .EndsAt.UTC.Format "01-02 15:04" {{"}}"}} UTC{{"{{"}} end {{"}}"}}
+      {{"{{"}} end {{"}}"}}Grafana: https://grafana.nerdnam.click · Alertmanager: kubectl -n monitoring port-forward svc/monitoring-alertmanager 9093{{"{{"}} end {{"}}"}}
 
 grafana:
   fullnameOverride: grafana
