@@ -8,4 +8,4 @@ images:
 
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:a421dc6a803e05af8fb899affa9182af0da3f7d0a9df195cc7a901418ff478df  # BE 69babc9 (2026-11-03, Merge pull request #68 from nerd-nam/feat/66-ai-queue)
 
-  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:1c39b0c922be0982a8e64af0e74d4fc908c42be5701aa81feb0cd48a52e409e6  # AI 7f5f828 (2026-11-03, Merge pull request #51 from nerd-nam/fix/llm-conn-closed-retry)
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:312ab702ef923d731e69bb474904ba38979e1948669fb40a1b39bc52a98ecd9e  # AI 60df475 (2026-11-03, Merge pull request #55 from nerd-nam/feat/bedrock-limiter)
