@@ -6,6 +6,9 @@ secretName: data-secrets
 # data namespace 로 들어오는 접속을 허용할 BE Pod 라벨 (nerdnam namespace). 6단계 BE Deployment 가 따라야 한다.
 apiPodLabels:
   app: api
+# AI 작업 큐 Redis(redis-queue)에만 들어오는 AI Pod 라벨. AI 는 PostgreSQL·세션 Redis 에는 닿지 않는다.
+aiPodLabels:
+  app: ai
 
 placement:
   nodeSelector:
@@ -51,6 +54,16 @@ redis:
     limits: {memory: 768Mi}
   terminationGracePeriodSeconds: 60
 
+# AI 작업 큐 (ADR-0009, INFRA #32). 디스크 저장 없음(PVC 없음). 메모리 상한에 닿으면 넣기가 실패한다(noeviction).
+redisQueue:
+  image: redis:7.4.12-alpine@sha256:338fbfc036dc5517ac0b04d6de21521085935336e565f223406180e9d84166e2
+  apiUser: api
+  aiUser: ai
+  maxmemory: 256mb   # 시작값(INFRA #32). 재시험 lag 를 보고 조정
+  resources:
+    requests: {cpu: 100m, memory: 320Mi}
+    limits: {memory: 512Mi}
+
 # 7단계 지표 수집. 각자 전용 계정(PostgreSQL pg_monitor, Redis 조회 전용 ACL)으로 접속한다.
 # Prometheus(monitoring namespace)만 지표 포트에 닿는다.
 exporters:
@@ -65,6 +78,15 @@ exporters:
       limits: {memory: 128Mi}
   redis:
     # redis_exporter v1.93.0 (uid 59000)
+    image: oliver006/redis_exporter:v1.93.0@sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
+    user: exporter
+    port: 9121
+    uid: 59000
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {memory: 128Mi}
+  # AI 작업 큐 Redis 용. 이미지·계정 이름은 세션 Redis exporter 와 같고 비밀번호만 다르다.
+  redis-queue:
     image: oliver006/redis_exporter:v1.93.0@sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
     user: exporter
     port: 9121

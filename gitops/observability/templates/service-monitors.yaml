@@ -25,7 +25,7 @@ spec:
     - port: http
       path: /metrics
       interval: {{ .Values.scrapeInterval }}
-{{- range $name := list "postgres" "redis" }}
+{{- range $name := list "postgres" "redis" "redis-queue" }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

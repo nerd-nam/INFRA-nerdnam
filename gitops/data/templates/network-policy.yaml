@@ -1,5 +1,6 @@
-{{- /* foundation 의 default-deny 위에 BE → PostgreSQL/Redis 만 양쪽 namespace 에서 연다. AI 는 DB 에 접근하지 않는다. */}}
-{{- $targets := dict "postgres" 5432 "redis" 6379 }}
+{{- /* foundation 의 default-deny 위에 BE → PostgreSQL/Redis/큐 Redis 만 양쪽 namespace 에서 연다.
+  AI 는 큐 Redis(redis-queue)에만 닿는다(ADR-0009). PostgreSQL·세션 Redis 에는 닿지 않는다. */}}
+{{- $targets := dict "postgres" 5432 "redis" 6379 "redis-queue" 6379 }}
 {{- range $app, $port := $targets }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -40,6 +41,42 @@ spec:
             matchLabels: {app: {{ $app }}}
       ports: [{protocol: TCP, port: {{ $port }}}]
     {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ai-to-redis-queue
+  namespace: data
+spec:
+  podSelector:
+    matchLabels: {app: redis-queue}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nerdnam
+          podSelector:
+            matchLabels: {{ toYaml .Values.aiPodLabels | nindent 14 }}
+      ports: [{protocol: TCP, port: 6379}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ai-to-redis-queue
+  namespace: nerdnam
+spec:
+  podSelector:
+    matchLabels: {{ toYaml .Values.aiPodLabels | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: data
+          podSelector:
+            matchLabels: {app: redis-queue}
+      ports: [{protocol: TCP, port: 6379}]
 {{- /* 7단계: exporter → PostgreSQL/Redis, Prometheus(monitoring) → exporter */}}
 {{- range $app, $port := $targets }}
 ---

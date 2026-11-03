@@ -127,7 +127,7 @@ spec:
           ports:
             - {name: http, containerPort: {{ $api.port }}}
             - {name: management, containerPort: {{ $api.managementPort }}}
-          # 비밀값: backend-secrets (OAuth 키 + data 비밀값에서 온 DB·Redis 비밀번호, gitops/secrets)
+          # 비밀값: backend-secrets (OAuth 키 + data 비밀값에서 온 DB·세션 Redis·큐 Redis 비밀번호, gitops/secrets)
           envFrom:
             - secretRef: {name: backend-secrets}
           env:
@@ -140,6 +140,10 @@ spec:
             - {name: REDIS_HOST, value: redis.data.svc.cluster.local}
             - {name: REDIS_PORT, value: "6379"}
             - {name: SPRING_DATA_REDIS_USERNAME, value: api}
+            - {name: AI_QUEUE_ENABLED, value: {{ $api.aiQueue.enabled | quote }}}
+            - {name: AI_QUEUE_REDIS_HOST, value: {{ $api.aiQueue.host | quote }}}
+            - {name: AI_QUEUE_REDIS_PORT, value: {{ $api.aiQueue.port | quote }}}
+            - {name: AI_QUEUE_REDIS_USERNAME, value: {{ $api.aiQueue.username | quote }}}
             # Traefik 이 TLS 를 끝내고 X-Forwarded-* 를 붙인다. OAuth 콜백 주소·Secure 쿠키가 https 로 정해진다.
             - {name: SERVER_FORWARD_HEADERS_STRATEGY, value: native}
             - {name: SERVER_SERVLET_SESSION_COOKIE_SECURE, value: "true"}
