@@ -17,7 +17,7 @@
 | 서비스·샘플 도메인, ACME 이메일 | bootstrap `app_hostname`, `sample_hostname`, `acme_email`, `acme_server` | 처음엔 staging ACME로 확인 후 production |
 | private Git 자격 증명 | Argo CD repository secret | ESO보다 먼저 필요. Git·state에 넣지 않는다 |
 | Secret JSON 4개 | Secrets Manager (1단계 이후) | 아래 3절 |
-| 이미지 digest 3개 | `gitops/apps/images.yaml` PR | 앱 CI 실행 요약에서 복사(팀 결정) |
+| 이미지 digest 3개 | `gitops/apps/images.yaml` PR | 앱 CI 가 자동으로 연다(GitHub App 준비 후, [이미지-배포-PR.md](이미지-배포-PR.md)). 첫 이미지는 실행 요약에서 복사 |
 | OAuth redirect URI 등록 | Google·Kakao 콘솔 | `https://<app_hostname>/login/oauth2/code/{google,kakao}` |
 | 알림 수신 채널 | 미정 | 정해질 때까지 Alertmanager UI만 |
 
@@ -153,7 +153,7 @@ Argo CD는 INFRA 저장소 **main 브랜치**를 추적한다(2026-11-02부터).
 
 1. 앱 저장소 main merge → CI가 ECR push → 실행 요약 digest.
 2. BE를 바꿀 때만: AI 작업 비우기(앱-배포 문서 8절, `POST /actuator/aijob {"state":"drain"}` → `drained:true`). drain 중에도 다른 API는 동작한다(BE #52).
-3. `images.yaml` PR merge → `nerdnam-apps` sync. BE는 Recreate라 기동까지(수십 초) 중단된다.
+3. 앱 CI가 연 INFRA PR `deploy(<app>): …`(브랜치 `deploy/<app>`, [이미지-배포-PR.md](이미지-배포-PR.md))을 리뷰·merge → `nerdnam-apps` sync. BE는 Recreate라 기동까지(수십 초) 중단된다.
 4. 대시보드에서 5xx·응답 시간·AI 작업 실패를 배포 전후로 비교한다.
 
 특정 지점에 잠시 고정(장애 대응): `bootstrap/dev.tfvars`에 `git_revision = "<commit>"`을 넣고 bootstrap apply → 해당 앱 sync. 원인을 고친 PR이 main에 들어가면 그 줄을 지우고 다시 apply해 main 추적으로 돌린다. 보통의 되돌리기는 7절처럼 Git revert PR로 한다.

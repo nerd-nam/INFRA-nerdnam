@@ -1,0 +1,179 @@
+# 앱 저장소(FE·BE·AI) CI 가 ECR 에 이미지를 올린 뒤 부르는 공용 workflow. INFRA gitops/apps/images.yaml 의 자기 줄을 고치는 PR 을 연다.
+# 설명·준비(GitHub App)는 docs/이미지-배포-PR.md.
+#
+#   앱 CI:  uses: nerd-nam/INFRA-nerdnam/.github/workflows/image-pr.yml@main
+#           with: {app: web, image: <registry>/nerdnam-dev/web@sha256:<64>, app_id: ${{ vars.INFRA_PR_APP_ID }}}
+#           secrets: {app_private_key: ${{ secrets.INFRA_PR_APP_PRIVATE_KEY }}}
+#
+# - 앱 CI 안에서 돈다(github.repository·github.sha 는 앱 저장소의 값).
+# - INFRA 에 쓰는 권한은 GitHub App 토큰(INFRA 저장소만, 파일·PR 쓰기만, workflow 파일 쓰기 없음). 앱 저장소에 다른 INFRA 권한은 없다.
+# - 앱마다 브랜치 deploy/<app> 하나·PR 하나를 유지한다. 새 이미지가 오면 최신 main 위에 다시 만들어 갱신한다.
+# - 호출한 저장소와 앱 이름이 맞아야 한다(FE→web, BE→api, AI→ai). 앱 main 의 최신 commit 이 아니면 건너뛴다.
+# - merge 와 배포(Argo sync)는 사람이 한다.
+name: image-pr
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: web | api | ai
+        required: true
+        type: string
+      image:
+        description: "<계정>.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/<app>@sha256:<64자리>"
+        required: true
+        type: string
+      app_id:
+        description: GitHub App ID (조직 변수 INFRA_PR_APP_ID)
+        required: true
+        type: string
+    secrets:
+      app_private_key:
+        description: GitHub App private key (조직 secret INFRA_PR_APP_PRIVATE_KEY)
+        required: true
+
+# 같은 앱의 실행은 하나씩(브랜치 deploy/<app> 를 번갈아 덮어쓰지 않게)
+concurrency:
+  group: infra-image-pr-${{ inputs.app }}
+  cancel-in-progress: false
+
+jobs:
+  pr:
+    name: INFRA 배포 PR (${{ inputs.app }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      APP: ${{ inputs.app }}
+      IMAGE: ${{ inputs.image }}
+      APP_REPO: ${{ github.repository }}
+      APP_SHA: ${{ github.sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      INFRA_REPO: nerd-nam/INFRA-nerdnam
+    steps:
+      - name: 입력 확인
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$APP_REPO:$APP" in
+            nerd-nam/FE-nerdnam:web) label=FE ;;
+            nerd-nam/BE-nerdnam:api) label=BE ;;
+            nerd-nam/AI-nerdnam:ai)  label=AI ;;
+            *) echo "::error::$APP_REPO 는 '$APP' 이미지를 배포할 수 없습니다(FE→web, BE→api, AI→ai)."; exit 1 ;;
+          esac
+          [[ "$IMAGE" =~ ^082139775699\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/nerdnam-dev/${APP}@sha256:[0-9a-f]{64}$ ]] \
+            || { echo "::error::이미지 형식이 다릅니다: $IMAGE"; exit 1; }
+          head=$(gh api "repos/$APP_REPO/commits/main" -q .sha)
+          if [ "$head" != "$APP_SHA" ]; then
+            echo "::notice::앱 main 이 더 새 commit(${head::7})으로 바뀌어 건너뜁니다. 그 실행이 PR 을 만듭니다."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "subject=$(gh api "repos/$APP_REPO/commits/$APP_SHA" -q '.commit.message' | head -1 | cut -c1-120)" >> "$GITHUB_OUTPUT"
+
+      - name: INFRA 쓰기 토큰 (GitHub App)
+        id: token
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ inputs.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+          owner: nerd-nam
+          repositories: INFRA-nerdnam
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.check.outputs.skip == 'false'
+        with:
+          repository: nerd-nam/INFRA-nerdnam
+          ref: main
+          token: ${{ steps.token.outputs.token }}
+
+      - name: images.yaml 수정 → deploy/${{ inputs.app }} 에 push
+        id: commit
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          LABEL: ${{ steps.check.outputs.label }}
+          SUBJECT: ${{ steps.check.outputs.subject }}
+          SLUG: ${{ steps.token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          f=gitops/apps/images.yaml
+          [ "$(grep -cE "^  $APP: " "$f")" = 1 ] || { echo "::error::$f 에 '  $APP: ' 줄이 정확히 하나여야 합니다."; exit 1; }
+          prev=$(grep -E "^  $APP: " "$f")
+          prev_image=${prev#*: }; prev_image=${prev_image%%  #*}
+          prev_sha=$(grep -oE "# $LABEL [0-9a-f]{7,40}" <<<"$prev" | awk '{print $3}' || true)
+          echo "prev_sha=$prev_sha" >> "$GITHUB_OUTPUT"
+          open=$(gh pr list -R "$INFRA_REPO" --head "deploy/$APP" --state open --json number -q '.[0].number // empty')
+          echo "open=$open" >> "$GITHUB_OUTPUT"
+          if [ "$prev_image" = "$IMAGE" ]; then
+            echo "::notice::main 에 이미 이 이미지가 있습니다."
+            if [ -n "$open" ]; then gh pr close "$open" -R "$INFRA_REPO" --comment "main 에 이미 ${APP_SHA::7} 이미지가 들어가 닫습니다." --delete-branch; fi
+            echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          new="  $APP: $IMAGE  # $LABEL ${APP_SHA::7} ($(date -u +%F), $SUBJECT)"
+          NEW="$new" python3 - "$f" "$APP" <<'PY'
+          import os, re, sys
+          path, app = sys.argv[1], sys.argv[2]
+          text = open(path, encoding='utf-8').read()
+          out, n = re.subn(rf'^  {re.escape(app)}: .*$', lambda _: os.environ['NEW'], text, count=1, flags=re.M)
+          assert n == 1
+          open(path, 'w', encoding='utf-8').write(out)
+          PY
+          git diff --stat
+          bot_id=$(gh api "users/${SLUG}%5Bbot%5D" -q .id)
+          git config user.name "${SLUG}[bot]"
+          git config user.email "${bot_id}+${SLUG}[bot]@users.noreply.github.com"
+          git checkout -B "deploy/$APP"
+          git commit -q -am "deploy($APP): $LABEL ${APP_SHA::7}" -m "$SUBJECT" -m "앱 commit: ${{ github.server_url }}/$APP_REPO/commit/$APP_SHA" -m "CI: $RUN_URL"
+          git push -q --force origin "deploy/$APP"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: PR 열기 또는 갱신
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          LABEL: ${{ steps.check.outputs.label }}
+          SUBJECT: ${{ steps.check.outputs.subject }}
+          PREV_SHA: ${{ steps.commit.outputs.prev_sha }}
+          OPEN: ${{ steps.commit.outputs.open }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          title="deploy($APP): $LABEL ${APP_SHA::7} — $SUBJECT"
+          {
+            echo "앱 CI 가 ECR 에 새 이미지를 올려 자동으로 만든 PR 입니다. 같은 앱의 새 이미지가 올라오면 이 PR 을 갱신합니다."
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| 앱 | $LABEL (\`$APP\`) |"
+            echo "| 새 commit | [\`${APP_SHA::7}\`]($SERVER/$APP_REPO/commit/$APP_SHA) $SUBJECT |"
+            if [ -n "$PREV_SHA" ]; then
+              echo "| 바뀐 commit | [\`$PREV_SHA...${APP_SHA::7}\`]($SERVER/$APP_REPO/compare/$PREV_SHA...$APP_SHA) |"
+            fi
+            echo "| 이미지 | \`$IMAGE\` |"
+            echo "| 만든 실행 | [CI]($RUN_URL) |"
+            echo
+            echo "## merge 후"
+            if [ "$APP" = api ]; then
+              echo "1. **AI 작업 비우기**: BE 는 Recreate 라 배포 중 진행 중인 AI 작업이 끊긴다(\`docs/배포-runbook.md\` 8절, \`POST /actuator/aijob {\"state\":\"drain\"}\` → \`drained:true\`)."
+              echo "2. Argo CD 에서 \`nerdnam-apps\` sync (BE 기동까지 수십 초 중단)."
+            else
+              echo "1. Argo CD 에서 \`nerdnam-apps\` sync."
+            fi
+            echo "- 대시보드에서 5xx·응답 시간을 배포 전후로 비교한다."
+            echo "- 바뀐 commit 에 DB migration·환경 변수·포트 변경이 있으면 merge 전에 확인한다."
+          } > body.md
+          if [ -n "$OPEN" ]; then
+            gh pr edit "$OPEN" -R "$INFRA_REPO" --title "$title" --body-file body.md
+            url=$(gh pr view "$OPEN" -R "$INFRA_REPO" --json url -q .url)
+          else
+            url=$(gh pr create -R "$INFRA_REPO" --base main --head "deploy/$APP" --title "$title" --body-file body.md)
+          fi
+          echo "INFRA 배포 PR: $url" | tee -a "$GITHUB_STEP_SUMMARY"
