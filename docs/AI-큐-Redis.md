@@ -1,6 +1,6 @@
 # AI 작업 큐 Redis (ADR-0009)
 
-기준일: 2026-11-03. AI 작업을 Redis Streams 큐로 보내는 구조(SPEC ADR-0009)의 INFRA 몫이다. 이슈 #32, 결정은 SPEC #101·BE #67·AI #52·#53.
+기준일: 2026-11-03. AI 작업을 Redis Streams 큐로 보내는 구조(SPEC ADR-0009)의 INFRA 몫이다. 이슈 #32, 결정은 SPEC #101·BE #67·AI #52·#53, AI 구현은 AI #54.
 
 ## 1. 구조
 
@@ -26,14 +26,15 @@ api ◀──XREAD ai:res:{BE Pod 이름}─────────────
 | 사용자 | 키 | 명령 |
 | --- | --- | --- |
 | `api` | `ai:req:*`, `ai:res:*` | `XADD`·`XLEN`(요청 넣기·접수 거절), `XREAD`·`XDEL`·`EXPIRE`(자기 결과 읽고 지우기) |
-| `ai` | `ai:req:*`, `ai:res:*`, `ai:run:*` | `XREADGROUP`·`XACK`·`XAUTOCLAIM`·`XCLAIM`·`XGROUP CREATE`·`XDEL`·`XLEN`·`XPENDING`·`XINFO GROUPS/STREAM`(꺼내기·회수·lag), `XADD`(결과), `SET`·`GET`·`DEL`·`EXPIRE`(같은 `id` 한 번만 실행, AI #53) |
+| `ai` | `ai:req:*`, `ai:res:*`(**쓰기만**), `ai:run:*` | `XGROUP CREATE`·`XREADGROUP`·`XACK`·`XDEL`·`XAUTOCLAIM`·`XCLAIM`·`XLEN`·`XINFO GROUPS`·`MULTI`/`EXEC`/`DISCARD`(꺼내기·회수·`XACK`+`XDEL`·lag), `XADD`·`EXPIRE`(결과), `SET`(같은 `id` 한 번만 실행: `NX EX GET` 선점, `XX EX` 연장, `done` 표시) |
 | `exporter` | 없음 | 상태 조회만(`INFO` 등) |
 | 공통 | — | `PING`·`HELLO`·`CLIENT SETNAME/SETINFO/ID`(클라이언트 연결) |
 | `default` | — | 꺼짐 |
 
-2026-11-03 Redis 7.4.12 이미지로 확인했다: 위 명령은 되고, api 의 `XREADGROUP`·`SET nerdnam:*`·`KEYS`, ai 의 `FLUSHALL`·`CONFIG` 는 `NOPERM`.
+2026-11-03 Redis 7.4.12 이미지로 AI #54 의 호출 순서를 흉내 내 확인했다: 위 명령은 되고, api 의 `XREADGROUP`·`SET nerdnam:*`·`KEYS`, ai 의 `XPENDING`·`GET`·`DEL`·`FLUSHALL`·`CONFIG`·`XRANGE ai:res:*`(결과 읽기) 는 `NOPERM`.
 
-`ai:run:*`·`XCLAIM` 은 AI #53 제안(중복 실행 막기)을 미리 연 것이다. AI 가 다르게 정하면 맞춘다.
+- `SET … NX GET` 은 키를 읽기도 하므로 `ai:run:*` 은 읽기·쓰기 키 권한이다(명령은 `SET` 뿐).
+- AI 작업자를 2대 이상으로 늘리면 연장·완료 표시를 "내 작업자 값일 때만"(Lua) 바꾸기로 했다(AI #52). 그때 `EVALSHA`·`SCRIPT LOAD` 를 연다.
 
 ## 3. 네트워크
 
@@ -50,16 +51,19 @@ api ◀──XREAD ai:res:{BE Pod 이름}─────────────
 | Secrets Manager `nerdnam/dev/data` 키 | 쓰는 곳 |
 | --- | --- |
 | `redis-queue-api-password` | 큐 Redis `api` 사용자, BE `AI_QUEUE_REDIS_PASSWORD`(backend-secrets) |
-| `redis-queue-ai-password` | 큐 Redis `ai` 사용자. AI 접속 설정 이름이 정해지면(AI #52) ai-secrets 로도 넘긴다 |
+| `redis-queue-ai-password` | 큐 Redis `ai` 사용자, AI `AI_QUEUE_REDIS_PASSWORD`(ai-secrets, AI 가 받는 유일한 data 키) |
 | `redis-queue-exporter-password` | `redis-queue-exporter`, 큐 Redis probe |
 
-BE 환경 변수(BE #67, `gitops/apps/values.yaml` `api.aiQueue`):
+환경 변수는 BE·AI 가 같은 이름이다(BE #67, AI #52). `gitops/apps/values.yaml` 의 `api.aiQueue`·`ai.aiQueue`.
 
-| 이름 | 값 |
-| --- | --- |
-| `AI_QUEUE_ENABLED` | `false`(기본). AI 큐 작업자를 배포한 뒤 켠다 |
-| `AI_QUEUE_REDIS_HOST`·`_PORT`·`_USERNAME` | `redis-queue.data.svc.cluster.local`, `6379`, `api` |
-| `AI_QUEUE_REDIS_PASSWORD` | backend-secrets ← `nerdnam/dev/data` `redis-queue-api-password` |
+| 이름 | api | ai |
+| --- | --- | --- |
+| `AI_QUEUE_ENABLED` | `false`. 켜면 AI 호출을 큐로 보낸다 | `false`. 켜면 큐 작업자를 띄운다(HTTP 경로는 켜든 끄든 계속 받는다) |
+| `AI_QUEUE_REDIS_HOST`·`_PORT` | `redis-queue.data.svc.cluster.local`, `6379` | 같음 |
+| `AI_QUEUE_REDIS_USERNAME` | `api` | `ai` |
+| `AI_QUEUE_REDIS_PASSWORD` | backend-secrets ← `redis-queue-api-password` | ai-secrets ← `redis-queue-ai-password`(`optional`: 키가 없어도 AI 는 HTTP 경로로 뜬다) |
+
+**켜는 순서**: ai `true`(작업자가 소비자 그룹을 만들고 기다림) → api `true`. 반대로 하면 BE 가 넣은 작업을 꺼낼 작업자가 없다(BE 가 20분 뒤 `TIMEOUT`). 되돌릴 때는 api 먼저 `false`.
 
 ## 5. 처음 배포
 
@@ -91,7 +95,9 @@ Prometheus 에서 `redis_up{job="redis-queue-exporter"}` 가 1, Grafana "nerdnam
 | `NerdnamRedisMemoryHigh` | Redis 별로 메모리 80% 초과 10분 |
 | `NerdnamRedisRejectingWrites` | Redis 별로 OOM 쓰기 거부 |
 | `NerdnamRedisAofWriteFailed` | 세션 Redis 만(큐는 AOF 없음) |
-| `NerdnamAiQueueStuck` | `nerdnam_ai_queue_lag` 가 30분(embed-bg 60분) 동안 0 이 되지 않고, 지금이 그때보다 많거나 같음(SPEC #101) |
+| `NerdnamAiQueueStuck` | 안 꺼낸 메시지(`nerdnam_ai_queue_lag`)가 30분(embed-bg 60분) 동안 0 이 되지 않고, 지금이 그때보다 많거나 같음 → 작업자가 멈췄거나 모자람(SPEC #101) |
+| `NerdnamAiQueuePendingStuck` | 꺼냈지만 안 끝난 메시지(`nerdnam_ai_queue_pending`)가 같은 조건 → 처리 중 멈춤·회수 문제(AI #52). 30분 넘게 쉬지 않고 몰리면 정상이어도 울릴 수 있다 |
+| `NerdnamAiQueueDown` | 큐 작업자가 큐 Redis 에 5분째 접속 못 함(`nerdnam_ai_queue_up == 0`). `queue_up` 은 작업자를 꺼도 0 으로 나와서, 작업자가 큐 지표를 낸 적이 있을 때만 본다 |
 
 이전에는 Redis 알림이 `max(redis_up) == 0` 처럼 Redis 하나를 가정해, 둘 중 하나만 죽으면 울리지 않았다.
 
@@ -99,8 +105,7 @@ Prometheus 에서 `redis_up{job="redis-queue-exporter"}` 가 1, Grafana "nerdnam
 
 | 할 일 | 기다리는 것 |
 | --- | --- |
-| ai Deployment 에 큐 Redis 접속 설정(환경 변수·ai-secrets) | AI #52 이름 결정 |
-| `nerdnam_ai_queue_lag`·`nerdnam_ai_stage_seconds` 이름을 실제 출력으로 다시 확인(`tests/fixtures/metrics/ai.txt`) | AI 큐 작업자 이미지 |
-| `AI_QUEUE_ENABLED=true` | AI 작업자 배포 + BE #68 배포 |
+| 큐 지표 이름을 실제 출력으로 다시 확인(`tests/fixtures/metrics/ai.txt`, 지금은 AI #54 코드 기준) | AI #54 배포 |
+| `AI_QUEUE_ENABLED=true`(ai → api 순서) | AI #54 + BE #68 배포 |
 | 운영 재시험(`ai-guide`·`ai-analysis`, #19 와 같은 부하) | 위 전부 |
 | `maxmemory` 조정 | 재시험 lag·메모리 |

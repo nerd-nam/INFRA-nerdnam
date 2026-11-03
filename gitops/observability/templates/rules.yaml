@@ -57,8 +57,9 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: AI 작업 큐가 50건을 넘게 밀려 있다 (stale-after 20분 전에 처리되지 못할 수 있다)
-        # AI 작업 큐(ADR-0009): 큐 대기는 실패로 세지 않으므로, 멈춰도 실패 알림이 오지 않는다. 그래서 "밀린 작업이 한 번도 0이 되지 않고
-        # 지금이 기준 시간 전보다 많거나 같음"을 멈춤으로 본다(SPEC #101: 30분, 문서 임베딩 embed-bg 는 60분). AI 가 죽으면 NerdnamAiDown 이 먼저 울린다.
+        # AI 작업 큐(ADR-0009, AI #52): 큐 대기는 실패로 세지 않으므로, 멈춰도 실패 알림이 오지 않는다. 그래서 "기준 시간 동안 한 번도 0이 되지 않고
+        # 지금이 그때보다 많거나 같음"을 멈춤으로 본다(SPEC #101: 30분, 문서 임베딩 embed-bg 는 60분). AI 가 죽으면 NerdnamAiDown 이 먼저 울린다.
+        # lag = 아직 안 꺼낸 메시지(작업자가 꺼내지 않음), pending = 꺼냈지만 끝내지 못함(처리 중 멈춤·회수 문제).
         - alert: NerdnamAiQueueStuck
           expr: |
             (min_over_time(nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream!="embed-bg"}[30m]) > 0
@@ -68,7 +69,25 @@ spec:
               and nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream="embed-bg"} >= nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream="embed-bg"} offset 60m)
           labels: {severity: warning}
           annotations:
-            summary: 'AI 작업 큐({{"{{"}} $labels.stream {{"}}"}})가 줄지 않는다. limiter 대기면 Bedrock 한도, queue 대기만이면 AI 작업자 부족(AI 장애 재현 대시보드)'
+            summary: 'AI 작업 큐({{"{{"}} $labels.stream {{"}}"}})에서 꺼내지 않은 작업이 줄지 않는다. AI 작업자가 멈췄거나 모자라다(AI 장애 재현 대시보드 2-1)'
+        - alert: NerdnamAiQueuePendingStuck
+          expr: |
+            (min_over_time(nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream!="embed-bg"}[30m]) > 0
+              and nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream!="embed-bg"} >= nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream!="embed-bg"} offset 30m)
+            or
+            (min_over_time(nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream="embed-bg"}[60m]) > 0
+              and nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream="embed-bg"} >= nerdnam_ai_queue_pending{namespace="nerdnam", job="ai", stream="embed-bg"} offset 60m)
+          labels: {severity: warning}
+          annotations:
+            summary: 'AI 작업 큐({{"{{"}} $labels.stream {{"}}"}})에서 꺼낸 뒤 끝나지 않은 작업이 줄지 않는다. 처리 중 멈춤·회수(XAUTOCLAIM) 문제'
+        # nerdnam_ai_queue_up 은 라벨 없는 지표라 큐 작업자를 끈 동안에도 0 으로 나온다. 작업자가 한 번이라도 돌아
+        # 큐 지표(queue_lag)를 낸 때만 본다(작업자가 처음부터 접속하지 못하면 NerdnamAiQueueStuck 도 울리지 않는다 — AI #54 에 알림).
+        - alert: NerdnamAiQueueDown
+          expr: max(nerdnam_ai_queue_up{namespace="nerdnam", job="ai"}) == 0 and on() count(nerdnam_ai_queue_lag{namespace="nerdnam", job="ai"}) > 0
+          for: 5m
+          labels: {severity: warning}
+          annotations:
+            summary: AI 큐 작업자가 큐 Redis 에 5분째 접속하지 못한다. 큐 경로 AI 작업이 멈춘다(HTTP 경로는 정상). data/redis-queue 와 NerdnamRedisDown 확인
         - alert: NerdnamEmbeddingStuck
           expr: max(nerdnam_chunk_pending_oldest_seconds) > 1800
           for: 10m
