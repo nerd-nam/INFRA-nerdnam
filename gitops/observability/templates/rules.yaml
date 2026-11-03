@@ -57,6 +57,18 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: AI 작업 큐가 50건을 넘게 밀려 있다 (stale-after 20분 전에 처리되지 못할 수 있다)
+        # AI 작업 큐(ADR-0009): 큐 대기는 실패로 세지 않으므로, 멈춰도 실패 알림이 오지 않는다. 그래서 "밀린 작업이 한 번도 0이 되지 않고
+        # 지금이 기준 시간 전보다 많거나 같음"을 멈춤으로 본다(SPEC #101: 30분, 문서 임베딩 embed-bg 는 60분). AI 가 죽으면 NerdnamAiDown 이 먼저 울린다.
+        - alert: NerdnamAiQueueStuck
+          expr: |
+            (min_over_time(nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream!="embed-bg"}[30m]) > 0
+              and nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream!="embed-bg"} >= nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream!="embed-bg"} offset 30m)
+            or
+            (min_over_time(nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream="embed-bg"}[60m]) > 0
+              and nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream="embed-bg"} >= nerdnam_ai_queue_lag{namespace="nerdnam", job="ai", stream="embed-bg"} offset 60m)
+          labels: {severity: warning}
+          annotations:
+            summary: 'AI 작업 큐({{"{{"}} $labels.stream {{"}}"}})가 줄지 않는다. limiter 대기면 Bedrock 한도, queue 대기만이면 AI 작업자 부족(AI 장애 재현 대시보드)'
         - alert: NerdnamEmbeddingStuck
           expr: max(nerdnam_chunk_pending_oldest_seconds) > 1800
           for: 10m
@@ -77,25 +89,31 @@ spec:
           labels: {severity: warning}
           annotations:
             summary: PostgreSQL 연결이 max_connections 의 80% 를 넘었다
+        # Redis 는 두 개다: 로그인 세션(job="redis-exporter")과 AI 작업 큐(job="redis-queue-exporter", ADR-0009).
+        # 하나만 죽어도 울리게 job 별로 본다. 알림의 job 라벨로 어느 Redis 인지 구분한다.
         - alert: NerdnamRedisDown
-          expr: max(redis_up) == 0 or absent(redis_up)
+          expr: |
+            max by (job) (redis_up{namespace="data"}) == 0
+            or absent(redis_up{namespace="data", job="redis-exporter"})
+            or absent(redis_up{namespace="data", job="redis-queue-exporter"})
           for: 2m
           labels: {severity: critical}
           annotations:
-            summary: Redis 에 접속할 수 없다 (로그인 세션)
+            summary: 'Redis({{"{{"}} $labels.job {{"}}"}}) 에 접속할 수 없다. redis-exporter = 로그인 세션(로그인 실패), redis-queue-exporter = AI 작업 큐(AI 작업 실패)'
         - alert: NerdnamRedisMemoryHigh
-          expr: max(redis_memory_used_bytes / redis_memory_max_bytes) > 0.8
+          expr: max by (job) (redis_memory_used_bytes{namespace="data"} / redis_memory_max_bytes{namespace="data"}) > 0.8
           for: 10m
           labels: {severity: warning}
           annotations:
-            summary: Redis 메모리가 maxmemory 의 80% 를 넘었다 (noeviction 이라 꽉 차면 세션 쓰기가 실패한다)
+            summary: 'Redis({{"{{"}} $labels.job {{"}}"}}) 메모리가 maxmemory 의 80% 를 넘었다. noeviction 이라 꽉 차면 세션 쓰기(로그인) 또는 큐 넣기(AI 작업)가 실패한다'
         - alert: NerdnamRedisRejectingWrites
-          expr: increase(redis_errors_total{err="OOM"}[5m]) > 0
+          expr: sum by (job) (increase(redis_errors_total{namespace="data", err="OOM"}[5m])) > 0
           labels: {severity: critical}
           annotations:
-            summary: Redis 가 maxmemory 에 걸려 쓰기를 거부했다
+            summary: 'Redis({{"{{"}} $labels.job {{"}}"}}) 가 maxmemory 에 걸려 쓰기를 거부했다'
+        # 큐 Redis 는 디스크 저장을 끈다(AOF 없음). 세션 Redis 만 본다.
         - alert: NerdnamRedisAofWriteFailed
-          expr: max(redis_aof_last_write_status) == 0
+          expr: max(redis_aof_last_write_status{namespace="data", job="redis-exporter"}) == 0
           for: 5m
           labels: {severity: critical}
           annotations:

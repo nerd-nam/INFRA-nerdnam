@@ -50,30 +50,33 @@ spec:
             - name: DATA_SOURCE_PASS
               valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: postgres-exporter-password}}
           {{- include "data.exporterContainer" (dict "ex" $ex.postgres) | nindent 10 }}
+{{- range $name := list "redis" "redis-queue" }}
+{{- $e := index $ex $name }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: redis-exporter
+  name: {{ $name }}-exporter
   namespace: data
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: redis-exporter}
+    matchLabels: {app: {{ $name }}-exporter}
   template:
     metadata:
-      labels: {app: redis-exporter}
+      labels: {app: {{ $name }}-exporter}
     spec:
-      {{- include "data.exporterPod" (dict "root" $ "ex" $ex.redis) | nindent 6 }}
+      {{- include "data.exporterPod" (dict "root" $ "ex" $e) | nindent 6 }}
       containers:
         - name: exporter
-          image: {{ $ex.redis.image | quote }}
+          image: {{ $e.image | quote }}
           env:
-            - {name: REDIS_ADDR, value: "redis://redis.data.svc.cluster.local:6379"}
-            - {name: REDIS_USER, value: {{ $ex.redis.user | quote }}}
+            - {name: REDIS_ADDR, value: "redis://{{ $name }}.data.svc.cluster.local:6379"}
+            - {name: REDIS_USER, value: {{ $e.user | quote }}}
             - name: REDIS_PASSWORD
-              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-exporter-password}}
-          {{- include "data.exporterContainer" (dict "ex" $ex.redis) | nindent 10 }}
+              valueFrom: {secretKeyRef: {name: {{ $.Values.secretName }}, key: {{ $name }}-exporter-password}}
+          {{- include "data.exporterContainer" (dict "ex" $e) | nindent 10 }}
+{{- end }}
 {{- range $name, $exporter := $ex }}
 ---
 apiVersion: v1

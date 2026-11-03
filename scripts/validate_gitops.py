@@ -34,12 +34,14 @@ K8S_OPENAPI = {
 }
 # Secrets Manager nerdnam/dev/data JSON 키 계약 (docs/데이터-계층-작업계획.md)
 DATA_SECRET_KEYS = {'postgres-superuser-password', 'postgres-migrator-password', 'postgres-app-password', 'redis-api-password',
-                    'postgres-exporter-password', 'redis-exporter-password'}
+                    'postgres-exporter-password', 'redis-exporter-password',
+                    'redis-queue-api-password', 'redis-queue-ai-password', 'redis-queue-exporter-password'}
 OTLP_HTTP_PORT = 4318   # 앱 → Alloy (8단계)
 TEMPO_OTLP_GRPC_PORT = 4317   # Alloy → Tempo
 BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
                      'SPRING_FLYWAY_PASSWORD': 'postgres-migrator-password',
-                     'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password'}
+                     'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password',
+                     'AI_QUEUE_REDIS_PASSWORD': 'redis-queue-api-password'}
 
 
 def main():
@@ -658,7 +660,7 @@ def check_observability(local, upstream):
                     return True
             return False
         assert any(allows(p) for p in policies), f'{namespace}/{service["metadata"]["name"]}:{port_name} not reachable from Prometheus'
-    assert {(m['metadata']['namespace'], m['metadata']['name']) for m in monitors} == {('nerdnam', 'api'), ('nerdnam', 'ai'), ('data', 'postgres-exporter'), ('data', 'redis-exporter')}
+    assert {(m['metadata']['namespace'], m['metadata']['name']) for m in monitors} == {('nerdnam', 'api'), ('nerdnam', 'ai'), ('data', 'postgres-exporter'), ('data', 'redis-exporter'), ('data', 'redis-queue-exporter')}
     rules = next(x for x in local['observability'] if x['kind'] == 'PrometheusRule')
     assert all(r['labels']['severity'] in ('warning', 'critical') for g in rules['spec']['groups'] for r in g['rules'])
     return len(monitors)
@@ -1027,11 +1029,38 @@ def check_data_layer(local):
                 used_keys.add(ref['key'])
         mounts = {m['mountPath'] for m in container['volumeMounts']}
         assert {'/tmp'} <= mounts, where
-    for exporter in by_kind['Deployment']:
+    deployments = {x['metadata']['name']: x for x in by_kind['Deployment']}
+    assert set(deployments) == {'postgres-exporter', 'redis-exporter', 'redis-queue', 'redis-queue-exporter'}
+    # AI 작업 큐 Redis(ADR-0009): 디스크 저장 없음(PVC 없음, AOF·RDB 끔), noeviction, 한 개만(Recreate).
+    queue = deployments.pop('redis-queue')
+    where = 'data/redis-queue'
+    pod = queue['spec']['template']['spec']
+    (container,) = pod['containers']
+    assert queue['spec']['replicas'] == 1 and queue['spec']['strategy'] == {'type': 'Recreate'}, where
+    assert pod['nodeSelector'] == {'workload': 'data'} and '@sha256:' in container['image'], where
+    assert pod['automountServiceAccountToken'] is False and pod['securityContext']['runAsNonRoot'] is True, where
+    assert not any('persistentVolumeClaim' in v for v in pod['volumes']), f'{where}: queue must not persist (request bodies hold resume text)'
+    assert container['securityContext']['readOnlyRootFilesystem'] is True, where
+    assert services['redis-queue']['spec']['selector'] == {'app': 'redis-queue'} and services['redis-queue']['spec']['ports'][0]['port'] == 6379
+    config = next(x for x in by_kind['ConfigMap'] if x['metadata']['name'] == 'redis-queue-config')['data']
+    conf = {line.split(None, 1)[0]: line.split(None, 1)[1] if ' ' in line else '' for line in config['redis.conf'].splitlines()
+            if line.strip() and not line.startswith('#')}
+    assert conf['appendonly'] == 'no' and conf['save'] == '""' and conf['maxmemory-policy'] == 'noeviction', f'{where}: {conf}'
+    acl = config['start.sh']
+    assert 'user default off' in acl and '+@all' not in acl and '@dangerous' not in acl, f'{where}: ACL must list commands explicitly'
+    assert quantity(conf['maxmemory'].replace('mb', 'Mi')) < quantity(container['resources']['limits']['memory']), where
+    requests['cpu'] += quantity(container['resources']['requests']['cpu'])
+    requests['memory'] += quantity(container['resources']['requests']['memory'])
+    limits += quantity(container['resources']['limits']['memory'])
+    for env in container['env']:
+        ref = env.get('valueFrom', {}).get('secretKeyRef')
+        if ref:
+            assert ref['name'] == 'data-secrets' and ref['key'].startswith('redis-queue-'), where
+            used_keys.add(ref['key'])
+    for exporter in deployments.values():
         pod = exporter['spec']['template']['spec']
         (container,) = pod['containers']
         where = f"data/{exporter['metadata']['name']}"
-        assert exporter['metadata']['name'] in ('postgres-exporter', 'redis-exporter'), where
         assert '@sha256:' in container['image'] and pod['nodeSelector'] == {'workload': 'data'}, where
         assert pod['securityContext']['runAsNonRoot'] and isinstance(pod['securityContext']['runAsUser'], int), where
         assert container['securityContext']['readOnlyRootFilesystem'] is True, where
@@ -1069,6 +1098,7 @@ def check_data_layer(local):
     assert egress['policyTypes'] == ['Egress']
     allowed_out = {(r['to'][0]['podSelector']['matchLabels']['app'], r['ports'][0]['port']) for r in egress['egress']}
     assert all(r['to'][0]['namespaceSelector']['matchLabels'] == {'kubernetes.io/metadata.name': 'data'} for r in egress['egress'])
+    ports['redis-queue'] = 6379
     assert allowed_out == set(ports.items())
     for name, port in ports.items():
         policy = policies[('data', f'allow-api-to-{name}')]['spec']
@@ -1079,6 +1109,19 @@ def check_data_layer(local):
         assert peer['namespaceSelector']['matchLabels'] == {'kubernetes.io/metadata.name': 'nerdnam'}
         assert peer['podSelector']['matchLabels'] == api_labels, 'only BE pods may reach the data layer'
         assert rule['ports'] == [{'protocol': 'TCP', 'port': port}]
+    # AI 는 큐 Redis 에만 닿는다(ADR-0009). PostgreSQL·세션 Redis 로 가는 정책은 없다.
+    ai_in = policies[('data', 'allow-ai-to-redis-queue')]['spec']
+    ai_out = policies[('nerdnam', 'allow-ai-to-redis-queue')]['spec']
+    ai_labels = ai_out['podSelector']['matchLabels']
+    assert ai_labels == {'app': 'ai'} and ai_out['policyTypes'] == ['Egress'] and ai_in['policyTypes'] == ['Ingress']
+    assert [(r['to'][0]['podSelector']['matchLabels'], r['ports']) for r in ai_out['egress']] == [({'app': 'redis-queue'}, [{'protocol': 'TCP', 'port': 6379}])]
+    assert ai_in['podSelector']['matchLabels'] == {'app': 'redis-queue'}
+    assert [peer['podSelector']['matchLabels'] for r in ai_in['ingress'] for peer in r['from']] == [ai_labels]
+    for (namespace, name), policy in policies.items():
+        selected = policy['spec']['podSelector'].get('matchLabels')
+        if namespace == 'data' and selected in ({'app': 'postgres'}, {'app': 'redis'}):
+            peers = [peer.get('podSelector', {}).get('matchLabels') for r in policy['spec'].get('ingress', []) for peer in r['from']]
+            assert ai_labels not in peers, f'{name}: AI must not reach PostgreSQL or the session Redis'
     assert not any(x['spec'].get('ingress') == [{}] or x['spec'].get('egress') == [{}] for x in by_kind['NetworkPolicy'])
     return len(sets)
 

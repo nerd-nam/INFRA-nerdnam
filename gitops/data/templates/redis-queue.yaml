@@ -1,0 +1,95 @@
+{{- /* AI 작업 큐 Redis (ADR-0009, INFRA #32). 디스크를 쓰지 않아 PVC 없이 Deployment 로 둔다. */}}
+{{- $q := .Values.redisQueue }}
+{{- $conf := tpl (.Files.Get "files/redis-queue.conf") . }}
+{{- $start := .Files.Get "files/redis-queue-start.sh" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-queue-config
+  namespace: data
+data:
+  redis.conf: |-
+    {{- $conf | nindent 4 }}
+  start.sh: |-
+    {{- $start | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-queue
+  namespace: data
+spec:
+  type: ClusterIP
+  selector: {app: redis-queue}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-queue
+  namespace: data
+spec:
+  replicas: 1
+  # 두 개가 잠깐이라도 같이 뜨면 BE·AI 가 서로 다른 큐를 볼 수 있다.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: redis-queue}
+  template:
+    metadata:
+      labels: {app: redis-queue}
+      annotations:
+        checksum/config: {{ print $conf $start | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      nodeSelector: {{ toYaml .Values.placement.nodeSelector | nindent 8 }}
+      tolerations: {{ toYaml .Values.placement.tolerations | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: redis
+          image: {{ $q.image | quote }}
+          command: [sh, /etc/redis/start.sh]
+          ports: [{name: redis, containerPort: 6379}]
+          env:
+            - {name: REDIS_API_USER, value: {{ $q.apiUser | quote }}}
+            - name: REDIS_API_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-queue-api-password}}
+            - {name: REDIS_AI_USER, value: {{ $q.aiUser | quote }}}
+            - name: REDIS_AI_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-queue-ai-password}}
+            - {name: REDIS_EXPORTER_USER, value: {{ .Values.exporters.redis.user | quote }}}
+            - name: REDIS_EXPORTER_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-queue-exporter-password}}
+            # probe 의 redis-cli 가 읽는 비밀번호(명령줄에 쓰지 않는다). PING 만 되는 exporter 계정을 쓴다.
+            - name: REDISCLI_AUTH
+              valueFrom: {secretKeyRef: {name: {{ .Values.secretName }}, key: redis-queue-exporter-password}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources: {{ toYaml $q.resources | nindent 12 }}
+          readinessProbe:
+            exec: {command: [sh, -c, '[ "$(redis-cli --user "$REDIS_EXPORTER_USER" ping)" = PONG ]']}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec: {command: [sh, -c, '[ "$(redis-cli --user "$REDIS_EXPORTER_USER" ping)" = PONG ]']}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - {name: config, mountPath: /etc/redis, readOnly: true}
+            - {name: run, mountPath: /run/redis}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: config
+          configMap: {name: redis-queue-config, defaultMode: 0444}
+        - name: run
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
