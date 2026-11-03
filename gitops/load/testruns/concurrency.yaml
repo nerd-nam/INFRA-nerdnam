@@ -1,4 +1,4 @@
-# 동시 사용자 수 변화. VU 10 → 20 → 40 → 80, 단계마다 1분 올리고 3분 유지(약 17분)
+# 동시 사용자 수 변화. VU 25 → 50 → 100 → 200 → 300, 단계마다 30초 올리고 2분 유지(약 13분)
 #   kubectl create -f gitops/load/testruns/concurrency.yaml       (apply 가 아니라 create: 이름 뒤에 매번 새 글자가 붙는다)
 #   kubectl -n load-test get testrun                          (stage 가 finished 가 되면 끝)
 #   kubectl -n load-test logs -f -l k6_cr=<만든 이름>,runner=true   (k6 요약)
@@ -32,8 +32,8 @@ spec:
           configMapKeyRef: {name: k6-env, key: BASE_URL}
       - {name: SCENARIO, value: concurrency}
       # 목표 VU 수:시간. 한도가 보이면 그 아래에서 잘게 나눠 다시 돈다
-      - {name: STAGES, value: "10:1m,10:3m,20:1m,20:3m,40:1m,40:3m,80:1m,80:3m,0:1m"}
-      - {name: THINK, value: "1"}
+      - {name: STAGES, value: "25:30s,25:2m,50:30s,50:2m,100:30s,100:2m,200:30s,200:2m,300:30s,300:2m,0:30s"}
+      - {name: THINK, value: "0.5"}
       # 로그인 경로까지: kubectl -n load-test create secret generic k6-session --from-literal=SESSION=<쿠키 값>  (없으면 비로그인 경로만)
       - name: SESSION
         valueFrom:

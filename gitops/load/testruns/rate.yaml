@@ -1,4 +1,4 @@
-# 요청량 변화. 초당 반복 2 → 5 → 10 → 20, 단계마다 1분 올리고 3분 유지(약 17분). 반복 1번 = 요청 3개(로그인 시 8개)
+# 요청량 변화. 초당 반복 10 → 25 → 50 → 100 → 150, 단계마다 30초 올리고 2분 유지(약 13분). 반복 1번 = 요청 3개(로그인 시 8개)
 #   kubectl create -f gitops/load/testruns/rate.yaml       (apply 가 아니라 create: 이름 뒤에 매번 새 글자가 붙는다)
 #   kubectl -n load-test get testrun                          (stage 가 finished 가 되면 끝)
 #   kubectl -n load-test logs -f -l k6_cr=<만든 이름>,runner=true   (k6 요약)
@@ -32,8 +32,8 @@ spec:
           configMapKeyRef: {name: k6-env, key: BASE_URL}
       - {name: SCENARIO, value: rate}
       # 목표 초당 반복 수:시간
-      - {name: STAGES, value: "2:1m,2:3m,5:1m,5:3m,10:1m,10:3m,20:1m,20:3m,0:1m"}
-      - {name: MAX_VUS, value: "300"}
+      - {name: STAGES, value: "10:30s,10:2m,25:30s,25:2m,50:30s,50:2m,100:30s,100:2m,150:30s,150:2m,0:30s"}
+      - {name: MAX_VUS, value: "500"}
       # 로그인 경로까지: kubectl -n load-test create secret generic k6-session --from-literal=SESSION=<쿠키 값>  (없으면 비로그인 경로만)
       - name: SESSION
         valueFrom:

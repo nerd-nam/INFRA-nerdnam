@@ -8,7 +8,7 @@
 //
 // SCENARIO
 //   smoke        일정 도착률 RATE/초(기본 2), DURATION(기본 2m). 배포 직후 경로 확인용
-//   concurrency  동시 사용자(VU) 수를 계단식으로 올린다. 각 VU 는 한 바퀴 돌고 THINK 초(기본 1) 쉰다
+//   concurrency  동시 사용자(VU) 수를 계단식으로 올린다. 각 VU 는 한 바퀴 돌고 THINK 초(기본 0.5) 쉰다
 //   rate         초당 시작하는 반복 수(요청량)를 계단식으로 올린다. 서버가 느려져도 요청량은 줄지 않는다
 // STAGES   "목표:시간" 쉼표 목록. concurrency 는 VU 수, rate 는 초당 반복 수. 예: "10:1m,10:3m,0:30s"
 // SESSION  로그인한 사용자 경로까지 부를 때 시험용 계정의 SESSION 쿠키 값(저장소·채팅에 남기지 않는다)
@@ -20,14 +20,15 @@ const BASE = (__ENV.BASE_URL || '').replace(/\/$/, '');
 if (!BASE) throw new Error('BASE_URL 을 주세요 (예: -e BASE_URL=https://nerdnam.example.com)');
 const SESSION = __ENV.SESSION || '';
 const SCENARIO = __ENV.SCENARIO || 'smoke';
-const THINK = Number(__ENV.THINK || 1);
+const THINK = Number(__ENV.THINK || 0.5);
 const TEST_ID = __ENV.TEST_ID || `${new Date().toISOString().slice(0, 16)}-${SCENARIO}`;
 const EXPECT_401 = http.expectedStatuses(401);
 
 // 각 단계는 앞 1개(올리는 구간) + 뒤 1개(유지 구간). 유지 구간의 대시보드 값을 읽는다.
+// 서버(api·web 각 1개)가 버거워지는 지점을 넘도록 잡았다. 마지막 단계에서는 느려지거나 실패하는 게 보통이다.
 const DEFAULT_STAGES = {
-  concurrency: '10:1m,10:3m,20:1m,20:3m,40:1m,40:3m,80:1m,80:3m,0:1m',
-  rate: '2:1m,2:3m,5:1m,5:3m,10:1m,10:3m,20:1m,20:3m,0:1m',
+  concurrency: '25:30s,25:2m,50:30s,50:2m,100:30s,100:2m,200:30s,200:2m,300:30s,300:2m,0:30s',
+  rate: '10:30s,10:2m,25:30s,25:2m,50:30s,50:2m,100:30s,100:2m,150:30s,150:2m,0:30s',
 };
 
 function stages(text) {
@@ -55,7 +56,7 @@ const SCENARIOS = {
   }),
   rate: () => {
     // 서버가 느려지면 같은 요청량을 내기 위해 VU 가 늘어난다. 이 값에 닿으면 k6 가 dropped_iterations 를 센다.
-    const maxVUs = Number(__ENV.MAX_VUS || 300);
+    const maxVUs = Number(__ENV.MAX_VUS || 500);
     return {
       executor: 'ramping-arrival-rate',
       startRate: 0,
