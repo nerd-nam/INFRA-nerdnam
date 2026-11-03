@@ -8,4 +8,4 @@ images:
 
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:bdc026311ba13d7657f5d60dbc9c0c75b832ff448b5f2a2ec8f21a817205a20e  # BE 994fd6f (2026-10-30, 응답 시간 구간 BE #54)
 
-  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:5c7746f23b0bf7d70e55f7ba2f817821aba7933afa4bfad086cc8b3031f98c51  # AI 12ec61a (2026-11-02, /metrics AI #44)
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:391c7b545f90f7de6364b3e7e2173ad3ba282594c0c661e5bbbc9a0f7cf3a558  # AI 365f33b (2026-11-03, Merge pull request #49 from nerd-nam/chore/limit-comments)
