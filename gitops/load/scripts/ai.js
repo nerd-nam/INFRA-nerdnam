@@ -91,7 +91,8 @@ function follow(jobs) {
       if (res.status !== 200) return true;
       const view = res.json();
       if (view.status !== 'completed' && view.status !== 'failed') return true;
-      jobDuration.add((Date.now() - job.startedAt) / 1000, { job: JOB, status: view.status });
+      // 시간 Trend 는 밀리초로 넣는다(Prometheus 로 보낼 때 초로 바뀐다)
+      jobDuration.add(Date.now() - job.startedAt, { job: JOB, status: view.status });
       jobResult.add(1, { job: JOB, result: view.status, failure_code: view.failureCode || 'none' });
       return false;
     });
