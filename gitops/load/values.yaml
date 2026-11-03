@@ -8,8 +8,10 @@ trendStats: avg,max,p(95),p(99)
 
 # load-test namespace 상한. k6 Pod 가 platform 노드(Prometheus·Grafana 와 같은 노드)를 다 먹지 않게 한다.
 # runner 1개(500m / 512Mi, limit 1Gi) + initializer·starter 를 넉넉히 덮는다.
+# CPU 는 시험 하나만 들어가게 잡는다(runner 500m 두 개 = 1000m 는 넘친다). 끝난 initializer·starter 는 quota 에 잡히지 않아
+# 두 번째 시험은 runner 를 만들 때 "exceeded quota" 로 막힌다(2026-11-02 rate 두 개가 같이 돈 뒤 1500m → 800m).
 quota:
-  requests.cpu: "1500m"
+  requests.cpu: "800m"
   requests.memory: 2Gi
   limits.memory: 3Gi
   pods: "6"
