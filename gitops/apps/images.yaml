@@ -4,7 +4,7 @@
 # 형식: <계정>.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/<web|api|ai>@sha256:<64자리>
 # 비어 있으면 렌더링이 실패한다(첫 이미지가 push 되기 전에는 nerdnam-apps 를 sync 하지 않는다).
 images:
-  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:c95de7eaa7c0c73d1431950411a1961ef4a204040a7935de4fb19cdcafc127a2  # FE a9392bb (2026-11-03, fix(ai-job): 큐 경로(ADR-0009) 대비 — 조회 3번 연달아 실패해야 포기, gpu_unavailable 문구를 요청)
+  web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:eac6c44a28f3dfafbad2cfc6d526e236c731d02bfdea6cca07f0e2e561d75d73  # FE e1c7aa9 (2026-11-03, fix(ai-job): gpu_unavailable 문구를 연결 실패로 (요청 몰림은 503 AI_UNAVAILABLE 로 따로 온다, SPEC PR )
 
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:a421dc6a803e05af8fb899affa9182af0da3f7d0a9df195cc7a901418ff478df  # BE 69babc9 (2026-11-03, Merge pull request #68 from nerd-nam/feat/66-ai-queue)
 
