@@ -12,5 +12,6 @@ output "addon_versions" {
     eks-pod-identity-agent = aws_eks_addon.pod_identity.addon_version
     coredns                = aws_eks_addon.coredns.addon_version
     aws-ebs-csi-driver     = aws_eks_addon.ebs_csi.addon_version
+    metrics-server         = aws_eks_addon.metrics_server.addon_version
   })
 }

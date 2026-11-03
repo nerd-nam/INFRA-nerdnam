@@ -127,7 +127,9 @@ def main():
                 core.validate(doc)
                 core_count += 1
             assert doc['kind'] != 'Secret', 'Do not put secret values in local GitOps charts'
-            assert doc['kind'] != 'HorizontalPodAutoscaler'
+            if doc['kind'] == 'HorizontalPodAutoscaler':
+                # 자동 확장은 web 만(app 노드 1대, docs/web-부하-분석.md). 다른 앱은 replicas 고정.
+                assert (doc['metadata']['namespace'], doc['metadata']['name']) == ('nerdnam', 'web'), 'HPA only for nerdnam/web'
 
     apps = [x for docs in [local['seed'], local['root']] for x in docs if x['kind'] == 'Application']
     assert all('automated' not in x['spec'].get('syncPolicy', {}) for x in apps)
@@ -362,7 +364,11 @@ def check_apps(local):
         where = f'nerdnam/{name}'
         labels = spec['template']['metadata']['labels']
         assert labels == spec['selector']['matchLabels'] == {'app': name}, where
-        assert spec['replicas'] == 1, where
+        if name == 'web':
+            # HPA 가 replica 수를 정한다. 매니페스트에 replicas 가 있으면 Argo sync 가 HPA 값을 덮어쓴다.
+            assert 'replicas' not in spec, f'{where}: replicas is owned by the HPA'
+        else:
+            assert spec['replicas'] == 1, where
         assert pod['nodeSelector'] == {'workload': 'app'} and 'tolerations' not in pod, where
         assert pod['serviceAccountName'] == name and name in accounts, where
         assert pod['automountServiceAccountToken'] is False and pod['enableServiceLinks'] is False, where
@@ -487,9 +493,24 @@ def check_apps(local):
     data_egress = next(x for x in local['data'] if x['kind'] == 'NetworkPolicy' and x['metadata']['name'] == 'allow-api-to-data')
     assert data_egress['spec']['podSelector']['matchLabels'] == {'app': 'api'}, 'data chart must select the same BE pods'
 
+    (hpa,) = by_kind['HorizontalPodAutoscaler']
+    hs = hpa['spec']
+    assert hs['scaleTargetRef'] == {'apiVersion': 'apps/v1', 'kind': 'Deployment', 'name': 'web'}
+    assert 1 <= hs['minReplicas'] <= hs['maxReplicas'] <= 2, 'web max 2: one app node, a saturated web pod uses ~1.7 cores'
+    (metric,) = hs['metrics']
+    assert metric['type'] == 'Resource' and metric['resource']['name'] == 'cpu' and metric['resource']['target']['type'] == 'Utilization'
+    assert hs['behavior']['scaleDown']['stabilizationWindowSeconds'] >= 300, 'do not flap back to one pod'
+    web_container = deployments['web']['spec']['template']['spec']['containers'][0]
+    assert quantity(web_container['resources']['requests']['cpu']) >= 0.25, 'HPA utilization is relative to requests.cpu'
+    live, ready = web_container['livenessProbe'], web_container['readinessProbe']
+    # 과부하(느림)와 멈춤을 구분: liveness 는 약 2분 이상 답이 없을 때만 재시작, readiness 가 먼저 트래픽에서 뺀다.
+    assert live['timeoutSeconds'] >= 10 and live['periodSeconds'] * live.get('failureThreshold', 3) >= 120, 'web liveness too strict'
+    assert ready['timeoutSeconds'] < live['timeoutSeconds']
+
     quota = by_kind['ResourceQuota'][0]['spec']['hard']
     assert quota['services.loadbalancers'] == '0' and quota['services.nodeports'] == '0'
-    surge = {'web': 2, 'api': 1, 'ai': 2}   # RollingUpdate maxSurge 1 이면 교체 중 2개
+    # RollingUpdate maxSurge 1 이면 교체 중 하나 더. web 은 HPA 최대 + 1.
+    surge = {'web': hs['maxReplicas'] + 1, 'api': 1, 'ai': 2}
     sample = next(x for x in local['sample'] if x['kind'] == 'Deployment')['spec']['template']['spec']['containers'][0]['resources']
     cpu = sum(quantity(d['spec']['template']['spec']['containers'][0]['resources']['requests']['cpu']) * surge[n] for n, d in deployments.items())
     memory = sum(quantity(d['spec']['template']['spec']['containers'][0]['resources']['limits']['memory']) * surge[n] for n, d in deployments.items())
@@ -747,6 +768,8 @@ NODES = {
 EKS_DAEMONSETS = {'aws-node': (0.025, 0), 'kube-proxy': (0.1, 0), 'ebs-csi-node': (0.03, 120 * 2**20),
                   'eks-pod-identity-agent': (0.025, 0)}
 EKS_APP_NODE_PODS = {'coredns x2': (0.2, 140 * 2**20), 'ebs-csi-controller x2': (0.12, 480 * 2**20)}
+# platform 노드에 두도록 설정한 EKS add-on Pod (modules/eks configuration_values)
+EKS_PLATFORM_NODE_PODS = {'metrics-server': (0.02, 64 * 2**20)}
 # 노드별 requests 합의 상한(allocatable 대비). 교체 중 추가 Pod·JVM·DB 캐시 peak 여유를 남긴다.
 REQUEST_HEADROOM = 0.85
 
@@ -788,6 +811,8 @@ def check_capacity(local, upstream, testruns):
         usage[node]['limit'] += limit
         usage[node]['pods'].append(name)
 
+    hpa_max = {(d['metadata']['namespace'], d['spec']['scaleTargetRef']['name']): d['spec']['maxReplicas']
+               for docs in local.values() for d in docs if d['kind'] == 'HorizontalPodAutoscaler'}
     for chart, docs in [*local.items(), *upstream.items()]:
         if chart in ('seed', 'root', 'argo-cd', 'sample'):
             continue   # argo-cd 는 bootstrap 이 따로 계산(아래), sample 은 검증용이라 운영에 두지 않는다
@@ -795,7 +820,8 @@ def check_capacity(local, upstream, testruns):
             kind = doc['kind']
             if kind in ('Deployment', 'StatefulSet', 'DaemonSet'):
                 pod = doc['spec']['template']['spec']
-                replicas = 1 if kind == 'DaemonSet' else doc['spec'].get('replicas', 1)
+                replicas = 1 if kind == 'DaemonSet' else hpa_max.get(
+                    (doc['metadata'].get('namespace'), doc['metadata']['name']), doc['spec'].get('replicas', 1))
                 nodes = schedulable_nodes(pod)
                 assert kind == 'DaemonSet' or len(nodes) == 1, f'{chart}/{doc["metadata"]["name"]}: unplaced'
                 for node in nodes:
@@ -826,6 +852,8 @@ def check_capacity(local, upstream, testruns):
             add(node, 'eks/' + name, cpu, memory, 0)
     for name, (cpu, memory) in EKS_APP_NODE_PODS.items():
         add('app', 'eks/' + name, cpu, memory, 0)
+    for name, (cpu, memory) in EKS_PLATFORM_NODE_PODS.items():
+        add('platform', 'eks/' + name, cpu, memory, 256 * 2**20)
 
     report = []
     for node, spec in NODES.items():

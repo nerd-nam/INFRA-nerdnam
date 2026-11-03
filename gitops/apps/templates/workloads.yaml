@@ -33,7 +33,7 @@ metadata:
   name: web
   namespace: nerdnam
 spec:
-  replicas: 1
+  # replicas 는 두지 않는다: HPA(아래)가 정한다. 여기 두면 Argo sync 때마다 HPA 값을 덮어쓴다.
   strategy:
     type: RollingUpdate
     rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
@@ -56,7 +56,10 @@ spec:
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $web.resources | nindent 12 }}
           # FE 상태 확인 전용 경로(FE #11): 화면을 그리지 않고 BE 도 부르지 않으며 trace 도 남기지 않는다.
-          # 예전엔 /favicon.ico 를 썼는데 10초마다 trace 가 쌓였다. liveness 도 같은 경로로 서버가 멈춘 것까지 잡는다.
+          # 예전엔 /favicon.ico 를 썼는데 10초마다 trace 가 쌓였다.
+          # readiness 는 빠르게: 바쁘면(3초 안에 답 없음) 잠시 트래픽에서 뺀다.
+          # liveness 는 느슨하게: 과부하로 느린 것과 멈춘 것을 구분한다. 약 2분(20초×6, 10초 제한) 답이 없을 때만 재시작.
+          #   2026-11-03 rate 시험에서 3초×3 이 과부하를 '멈춤'으로 보고 재시작해 502·503 을 냈다(docs/web-부하-분석.md).
           readinessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 10
@@ -64,8 +67,8 @@ spec:
           livenessProbe:
             httpGet: {path: /healthz, port: http}
             periodSeconds: 20
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
           lifecycle:
             preStop: {sleep: {seconds: 5}}   # Service endpoint 에서 빠질 시간
           volumeMounts:
@@ -76,6 +79,29 @@ spec:
           emptyDir: {sizeLimit: 256Mi}
         - name: tmp
           emptyDir: {sizeLimit: 64Mi}
+---
+# web 을 부하에 따라 1~2개로(metrics-server 의 CPU 사용량). 늘리기는 바로, 줄이기는 5분 안정된 뒤 하나씩.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: nerdnam
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: web}
+  minReplicas: {{ $web.autoscaling.minReplicas }}
+  maxReplicas: {{ $web.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $web.autoscaling.cpuUtilization }}}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Pods, value: 1, periodSeconds: 15}]
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies: [{type: Pods, value: 1, periodSeconds: 60}]
 ---
 apiVersion: apps/v1
 kind: Deployment

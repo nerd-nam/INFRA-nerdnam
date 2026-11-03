@@ -77,6 +77,19 @@ run "reject_session_principal" {
   expect_failures = [aws_eks_cluster.this]
 }
 
+run "metrics_server_on_platform" {
+  command = plan
+  module { source = "./modules/eks" }
+  assert {
+    condition = (
+      aws_eks_addon.metrics_server.addon_name == "metrics-server" &&
+      jsondecode(aws_eks_addon.metrics_server.configuration_values).nodeSelector.workload == "platform" &&
+      anytrue([for t in jsondecode(aws_eks_addon.metrics_server.configuration_values).tolerations : t.key == "dedicated" && t.value == "platform"])
+    )
+    error_message = "metrics-server(web HPA 의 CPU 지표)는 platform 노드에 둔다."
+  }
+}
+
 run "reject_unknown_addon" {
   command = plan
   module { source = "./modules/eks" }

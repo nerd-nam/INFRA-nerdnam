@@ -13,9 +13,18 @@ web:
   port: 3000
   uid: 100        # FE 이미지의 web 사용자 (alpine adduser -S)
   gid: 101
+  # 실측(2026-11-03 rate 시험): 평소 0.4코어, Pod 하나 한계 약 115요청/초에서 1.7코어. 메모리는 최대 281Mi.
+  # CPU 상한은 두지 않는다(몰릴 때 노드의 남는 CPU 를 쓴다). docs/web-부하-분석.md
   resources:
-    requests: {cpu: 100m, memory: 256Mi}
+    requests: {cpu: 500m, memory: 256Mi}
     limits: {memory: 512Mi}
+  # 부하가 몰리면 2개로(HPA, metrics-server). app 노드 1대라 최대 2(Pod 하나가 한계에서 1.7코어).
+  # requests.cpu 대비 평균 사용률이 이 값을 넘으면 늘린다: 120% = 평균 0.6코어 ≈ web 요청 약 45/초.
+  # 늘어나는 데 약 1분(지표 수집·판단·기동)이라 한계(약 115/초)보다 훨씬 앞에서 늘린다.
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 2
+    cpuUtilization: 120
 
 api:
   port: 8080
@@ -58,7 +67,8 @@ egress:
   podIdentityAgent: 169.254.170.23/32
 
 quota:
-  requests.cpu: "2"
+  # web 최대 2 + 롤링 업데이트 1(500m×3) + api 500m + ai 250m×2 + sample 을 덮는다(검증 스크립트가 계산)
+  requests.cpu: "3"
   requests.memory: 5Gi
   limits.memory: 7Gi
   persistentvolumeclaims: "0"

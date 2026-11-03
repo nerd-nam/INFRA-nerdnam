@@ -17,7 +17,7 @@ variable "addon_versions" {
   default     = {}
   validation {
     condition = alltrue([for name, version in var.addon_versions :
-      contains(["vpc-cni", "kube-proxy", "coredns", "eks-pod-identity-agent", "aws-ebs-csi-driver"], name) && can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+-eksbuild\\.[0-9]+$", version))
+      contains(["vpc-cni", "kube-proxy", "coredns", "eks-pod-identity-agent", "aws-ebs-csi-driver", "metrics-server"], name) && can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+-eksbuild\\.[0-9]+$", version))
     ])
     error_message = "지원하는 add-on 이름과 v1.2.3-eksbuild.1 형식의 버전을 지정해야 합니다."
   }
