@@ -8,4 +8,4 @@ images:
 
   api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:65f32e0a28f32ac221d8bb290d3f500498601c4cbfa1bacb45823f102c8ae7c6  # BE 2bb3eee (2026-11-03, Merge pull request #64 from nerd-nam/fix/ai-retry-delay)
 
-  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:391c7b545f90f7de6364b3e7e2173ad3ba282594c0c661e5bbbc9a0f7cf3a558  # AI 365f33b (2026-11-03, Merge pull request #49 from nerd-nam/chore/limit-comments)
+  ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:1c39b0c922be0982a8e64af0e74d4fc908c42be5701aa81feb0cd48a52e409e6  # AI 7f5f828 (2026-11-03, Merge pull request #51 from nerd-nam/fix/llm-conn-closed-retry)
