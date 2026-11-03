@@ -26,12 +26,12 @@ api ◀──XREAD ai:res:{BE Pod 이름}─────────────
 | 사용자 | 키 | 명령 |
 | --- | --- | --- |
 | `api` | `ai:req:*`, `ai:res:*` | `XADD`·`XLEN`(요청 넣기·접수 거절), `XREAD`·`XDEL`·`EXPIRE`(자기 결과 읽고 지우기) |
-| `ai` | `ai:req:*`, `ai:res:*`(**쓰기만**), `ai:run:*` | `XGROUP CREATE`·`XREADGROUP`·`XACK`·`XDEL`·`XAUTOCLAIM`·`XCLAIM`·`XLEN`·`XINFO GROUPS`·`MULTI`/`EXEC`/`DISCARD`(꺼내기·회수·`XACK`+`XDEL`·lag), `XADD`·`EXPIRE`(결과), `SET`(같은 `id` 한 번만 실행: `NX EX GET` 선점, `XX EX` 연장, `done` 표시) |
+| `ai` | `ai:req:*`, `ai:res:*`(**쓰기만**), `ai:run:*` | `XGROUP CREATE`·`XREADGROUP`·`XACK`·`XDEL`·`XAUTOCLAIM`·`XCLAIM`·`XLEN`·`XINFO GROUPS`(꺼내기·회수·`XACK`·`XDEL`·lag. 트랜잭션 없이 순서대로 보내므로 `MULTI`/`EXEC` 는 열지 않는다, ADR-0009 92b5cb0), `XADD`·`EXPIRE`(결과), `SET`(같은 `id` 한 번만 실행: `NX EX GET` 선점, `XX EX` 연장, `done` 표시) |
 | `exporter` | 없음 | 상태 조회만(`INFO` 등) |
 | 공통 | — | `PING`·`HELLO`·`CLIENT SETNAME/SETINFO/ID`(클라이언트 연결) |
 | `default` | — | 꺼짐 |
 
-2026-11-03 Redis 7.4.12 이미지로 AI #54 의 호출 순서를 흉내 내 확인했다: 위 명령은 되고, api 의 `XREADGROUP`·`SET nerdnam:*`·`KEYS`, ai 의 `XPENDING`·`GET`·`DEL`·`FLUSHALL`·`CONFIG`·`XRANGE ai:res:*`(결과 읽기) 는 `NOPERM`.
+2026-11-03 Redis 7.4.12 이미지로 AI #54(main 60df475) 의 호출 순서를 흉내 내 확인했다: 위 명령은 되고, api 의 `XREADGROUP`·`SET nerdnam:*`·`KEYS`, ai 의 `MULTI`·`XPENDING`·`GET`·`DEL`·`FLUSHALL`·`CONFIG`·`XRANGE ai:res:*`(결과 읽기) 는 `NOPERM`.
 
 - `SET … NX GET` 은 키를 읽기도 하므로 `ai:run:*` 은 읽기·쓰기 키 권한이다(명령은 `SET` 뿐).
 - AI 작업자를 2대 이상으로 늘리면 연장·완료 표시를 "내 작업자 값일 때만"(Lua) 바꾸기로 했다(AI #52). 그때 `EVALSHA`·`SCRIPT LOAD` 를 연다.
@@ -107,7 +107,7 @@ Prometheus 에서 `redis_up{job="redis-queue-exporter"}` 가 1, Grafana "nerdnam
 | `NerdnamRedisAofWriteFailed` | 세션 Redis 만(큐는 AOF 없음) |
 | `NerdnamAiQueueStuck` | 안 꺼낸 메시지(`nerdnam_ai_queue_lag`)가 30분(embed-bg 60분) 동안 0 이 되지 않고, 지금이 그때보다 많거나 같음 → 작업자가 멈췄거나 모자람(SPEC #101) |
 | `NerdnamAiQueuePendingStuck` | 꺼냈지만 안 끝난 메시지(`nerdnam_ai_queue_pending`)가 같은 조건 → 처리 중 멈춤·회수 문제(AI #52). 30분 넘게 쉬지 않고 몰리면 정상이어도 울릴 수 있다 |
-| `NerdnamAiQueueDown` | 큐 작업자가 큐 Redis 에 5분째 접속 못 함(`nerdnam_ai_queue_up == 0`). `queue_up` 은 작업자를 꺼도 0 으로 나와서, 작업자가 큐 지표를 낸 적이 있을 때만 본다 |
+| `NerdnamAiQueueDown` | 큐 작업자가 큐 Redis 에 5분째 접속 못 함(`nerdnam_ai_queue_up == 0`). `queue_up` 은 작업자를 켰을 때만 나온다(꺼짐과 끊김 구분) |
 
 이전에는 Redis 알림이 `max(redis_up) == 0` 처럼 Redis 하나를 가정해, 둘 중 하나만 죽으면 울리지 않았다.
 

@@ -537,7 +537,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "queue = 메시지를 넣고 꺼내지기까지(메시지 1건), bedrock = Bedrock 호출 1회 응답 시간. queue 만 ↑ = AI 작업자 부족(또는 모델 한도로 작업자가 오래 붙잡힘), bedrock ↑ = Bedrock 자체 지연·재시도. 구간 최대 600초라 10분 넘는 대기는 600 으로 보인다(멈춤 알림으로 잡는다)",
+      "description": "queue = 메시지를 넣고 꺼내지기까지(메시지 1건), limiter = 모델별 분당 한도기(Nova 20·Titan 60회/분, AI #55)에서 자리를 기다린 시간, bedrock = Bedrock 호출 1회 응답 시간(limiter·bedrock 은 호출 1회 기준). limiter ↑ = 모델 한도 포화 / queue 만 ↑ = AI 작업자 부족 / bedrock ↑ = Bedrock 자체 지연. limiter 는 HTTP 경로에도 걸려 큐를 끈 동안에도 값이 있다. 구간 최대 600초라 10분 넘는 대기는 600 으로 보인다(멈춤 알림으로 잡는다)",
       "id": 18
     },
     {
@@ -623,7 +623,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "지금 Bedrock 응답을 기다리는 호출 수(모델별). AI 작업자 동시 처리 상한(llm 8·embed 2·embed-bg 1)에 붙어 있으면 작업자가 다 차 있다. 큐 접속은 큐 작업자를 켰을 때만 뜻이 있다(끈 동안에도 0 으로 나온다)",
+      "description": "지금 기다리는 Bedrock 호출 수(모델·단계별). limiter = 한도기에서 자리를 기다림, bedrock = Bedrock 응답을 기다림. 큐 접속(queue_up)은 AI_QUEUE_ENABLED=true 일 때만 나온다",
       "id": 21
     },
     {
