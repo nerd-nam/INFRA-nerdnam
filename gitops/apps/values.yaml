@@ -19,12 +19,13 @@ web:
     requests: {cpu: 500m, memory: 256Mi}
     limits: {memory: 512Mi}
   # 부하가 몰리면 2개로(HPA, metrics-server). app 노드 1대라 최대 2(Pod 하나가 한계에서 1.7코어).
-  # requests.cpu 대비 평균 사용률이 이 값을 넘으면 늘린다: 120% = 평균 0.6코어 ≈ web 요청 약 45/초.
-  # 늘어나는 데 약 1분(지표 수집·판단·기동)이라 한계(약 115/초)보다 훨씬 앞에서 늘린다.
+  # requests.cpu 대비 평균 사용률이 이 값을 넘으면 늘린다: 100% = 평균 0.5코어 ≈ web 요청 약 35/초.
+  # HPA 는 기준에서 10% 넘게 벗어나야 움직인다(허용 오차). 120% 일 때 실제로는 132% 에서야 늘어 약 1분 늦었다
+  # (2026-11-03 재시험, docs/web-부하-분석.md 8절). 늘어나는 데도 약 1분이라 한계(약 115/초)보다 훨씬 앞에서 늘린다.
   autoscaling:
     minReplicas: 1
     maxReplicas: 2
-    cpuUtilization: 120
+    cpuUtilization: 100
 
 api:
   port: 8080
