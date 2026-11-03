@@ -2,15 +2,15 @@
 // 실제 Bedrock 을 부른다(요금). 실행 시간대를 팀에 공지하고, 그동안 문서 업로드·다른 AI 사용을 멈춘다.
 // 읽기 경로 시험(nerdnam.js)과 따로, 한 번에 하나만 돌린다. 결과는 Grafana "nerdnam AI 장애 재현" 대시보드.
 //
-//   scripts/load-test.sh run ai-analysis --session --env POSTING_IDS=3,4,5     (클러스터, docs/부하-시험-실행.md)
+//   scripts/load-test.sh run ai-analysis --session --env POSTING_IDS=3,4,5,6,7,8,9,10,11,12   (클러스터, docs/부하-시험-실행.md)
 //   k6 run -e BASE_URL=… -e SCENARIO=guide -e SESSION=… -e POSTING_IDS=… gitops/load/scripts/ai.js   (노트북)
 //
 // SCENARIO
 //   analysis  공고 분석 시작(요건 20개 공고). 분석 1건 = 요건 질의 임베딩 20번 → Titan 분당 한도에서 막힌다(장애형)
 //   guide     작성 방향 탭 5개 생성. 탭 1개 = Nova 1번 → Nova 분당 한도에서 BE 큐가 밀린다(저하형)
 // 흐름: 정상 RATE_NORMAL 건/분 × DURATION_NORMAL → PAUSE 쉼 → 몰림 RATE_SURGE 건/분 × DURATION_SURGE
-// SESSION      시험 전용 계정의 SESSION 쿠키(필수). Secret k6-session 으로 넣는다. 저장소·채팅에 남기지 않는다
-// POSTING_IDS  분석이 한 번 끝난 공고 id 쉼표 목록(필수, BE scripts/loadtest-seed.sh 가 만든다). 돌아가며 쓴다
+// SESSION      시험 계정의 SESSION 쿠키(필수). Secret k6-session 으로 넣는다. 저장소·채팅에 남기지 않는다
+// POSTING_IDS  분석이 한 번 끝난 공고 id 쉼표 목록(필수, BE scripts/loadtest-seed.sh 가 만든다). 돌아가며 쓴다. 시험 공고만 넣는다(같은 계정의 실제 공고 제외)
 // 결과 지표(Prometheus): k6_ai_job_duration_seconds(native histogram, 태그 job·status),
 //                       k6_ai_job_result_total(태그 job·result·failure_code). 판정은 대시보드에서 한다(thresholds 없음)
 import http from 'k6/http';
