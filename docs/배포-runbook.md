@@ -147,7 +147,7 @@ Argo CD는 INFRA 저장소 **main 브랜치**를 추적한다(2026-11-02부터).
 - **무엇을**: PR을 main에 merge한다(리뷰·기록이 Git에 남는다).
 - **언제**: Argo가 3분 안에 main을 다시 읽어 바뀐 Application을 OutOfSync로 표시한다. 운영자가 확인하고 sync한다(`scripts/argo-sync.sh <앱>`). 바로 보려면 Argo 화면에서 REFRESH.
 - bootstrap apply는 Argo CD 자체 설정(`bootstrap/argocd-values.yaml`)이나 seed 값(도메인·관리 IP 등)을 바꿀 때만 한다.
-- 새 Application을 추가하거나 root 설정을 바꿨으면 `nerdnam-root`를 먼저 sync한다.
+- 새 Application을 추가하거나 root 설정을 바꿨으면 `nerdnam-root`를 먼저 sync한다. **`gitops/root/configs/*.yaml`(Traefik·cert-manager·LBC·ESO·kube-prometheus-stack·Loki·Tempo·Alloy·k6-operator 설정)을 바꾼 PR도 같다**: 이 값은 root 가 각 Application 에 넣어 넘기므로, root 를 sync 하기 전에는 해당 앱이 바뀐 게 없어 Synced 로 보인다. 순서: `nerdnam-root` → 해당 앱.
 
 앱 업데이트:
 

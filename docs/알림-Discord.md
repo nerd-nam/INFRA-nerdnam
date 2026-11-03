@@ -37,8 +37,9 @@ Prometheus 알림 규칙(firing) → Alertmanager (monitoring, platform 노드)
 1. **Discord 웹훅 만들기**: 알림 받을 채널 → 채널 편집(톱니) → 연동(Integrations) → 웹후크 → 새 웹후크 → 이름(예: `nerdnam-alert`) → **웹후크 URL 복사**
 2. **Secrets Manager 에 넣기**: AWS 콘솔 → Secrets Manager → `nerdnam/dev/monitoring` → 보안 암호 값 검색 → 편집 → **키/값 추가**: 키 `alertmanager-discord-webhook-url`, 값 = 복사한 URL → 저장. (기존 `grafana-admin-*` 키는 그대로 둔다. URL 을 Git·채팅·로그에 남기지 않는다.)
 3. **배포**(PR merge 후, Argo CD 에서 순서대로 sync)
+   - `nerdnam-root` **먼저**. `kube-prometheus-stack` 의 설정값(`gitops/root/configs/kube-prometheus-stack.yaml`)은 root 가 앱 정의에 넣어 넘긴다. root 를 건너뛰면 `kube-prometheus-stack` 은 바뀐 게 없어 Synced 로 보이고 설정이 반영되지 않는다(2026-11-03 첫 배포에서 있었음)
    - `nerdnam-secrets` → ExternalSecret `alertmanager-discord` 가 Secret 을 만든다(`kubectl -n monitoring get externalsecret alertmanager-discord` 가 `SecretSynced`)
-   - `kube-prometheus-stack` → Alertmanager 설정·볼륨 반영(Pod 재시작 1번)
+   - `kube-prometheus-stack` → Alertmanager 설정·볼륨 반영(Pod 재시작 1번). 확인: `kubectl -n monitoring get secret alertmanager-monitoring -o jsonpath='{.data.alertmanager\.yaml}' | base64 -d | grep discord`
    - 순서가 바뀌거나 2번을 아직 안 해도 Alertmanager 는 뜬다(볼륨 optional). 그때는 알림만 안 나가고 Alertmanager 로그에 파일을 읽지 못했다는 오류가 남는다.
 4. **시험 알림**: 아래 5절.
 
