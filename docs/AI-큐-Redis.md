@@ -69,8 +69,18 @@ api ◀──XREAD ai:res:{BE Pod 이름}─────────────
 
 1. **Secrets Manager 에 키 3개 추가**(먼저 해야 한다): AWS 콘솔 → Secrets Manager → `nerdnam/dev/data` → 보안 암호 값 편집 → 키/값 추가.
    - `redis-queue-api-password`, `redis-queue-ai-password`, `redis-queue-exporter-password`
-   - 값은 각각 다른 긴 임의 문자열(예: `openssl rand -base64 32`). 기존 키는 그대로 둔다. Git·채팅·로그에 남기지 않는다.
+   - 값은 각각 다른 긴 임의 문자열(예: `openssl rand -hex 32`, 특수문자 없음). 기존 키는 그대로 둔다. Git·채팅·로그에 남기지 않는다.
    - 빠뜨리면: `backend-secrets` ExternalSecret 이 오류로 갱신을 멈추고(기존 값은 유지), `redis-queue` Pod 가 `CreateContainerConfigError` 로 뜨지 않는다.
+   - **키를 넣은 뒤 바로 클러스터로 가져온다.** ExternalSecret 은 1시간마다 갱신하므로, 그대로 두면 최대 1시간 동안 새 키가 Secret 에 없다(2026-11-03 첫 배포에서 `redis-queue`·`redis-queue-exporter` 가 `couldn't find key redis-queue-…-password` 로 약 1시간 뜨지 못했다).
+
+     ```sh
+     kubectl --context nerdnam-dev -n data annotate externalsecret data-secrets force-sync=$(date +%s) --overwrite
+     kubectl --context nerdnam-dev -n nerdnam annotate externalsecret backend-secrets ai-secrets force-sync=$(date +%s) --overwrite
+     # 키 이름만 확인(값은 보지 않는다). redis-queue-* 3개가 보여야 한다
+     kubectl --context nerdnam-dev -n data get secret data-secrets -o go-template='{{range $k,$v := .data}}{{$k}}{{"\n"}}{{end}}'
+     ```
+
+     `SecretSynced` 는 "마지막 갱신이 성공했다"는 뜻이라 새 키가 들어왔는지는 알려 주지 않는다. 키 이름으로 확인한다. 이미 `CreateContainerConfigError` 인 Pod 는 키가 들어오면 kubelet 이 다시 시도해 저절로 뜬다.
 2. **Argo CD sync**(PR merge 후, 순서대로)
    - `nerdnam-secrets` → `kubectl -n nerdnam get externalsecret backend-secrets`, `kubectl -n data get externalsecret data-secrets` 가 `SecretSynced`
    - `nerdnam-data` → `redis-queue`, `redis-queue-exporter` Running, 네트워크 정책 추가
