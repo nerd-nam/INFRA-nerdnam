@@ -6,6 +6,6 @@
 images:
   web: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/web@sha256:01bcdb160d7ee43528dc26f8434326fd31d4dab6172996efc49166a3217d5b68  # FE 3da158b (2026-11-03, 로그인 안 한 방문마다 Redis 에 빈 세션이 쌓이지 않게)
 
-  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:94ea12d3d01aba93b49aaaebe1faf39e9f1d3c2e3f98cb5bc26e0701365e8b31  # BE 7eb24db (2026-11-03, Merge pull request #65 from nerd-nam/fix/short-prelogin-session)
+  api: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/api@sha256:a421dc6a803e05af8fb899affa9182af0da3f7d0a9df195cc7a901418ff478df  # BE 69babc9 (2026-11-03, Merge pull request #68 from nerd-nam/feat/66-ai-queue)
 
   ai: 082139775699.dkr.ecr.ap-northeast-2.amazonaws.com/nerdnam-dev/ai@sha256:1c39b0c922be0982a8e64af0e74d4fc908c42be5701aa81feb0cd48a52e409e6  # AI 7f5f828 (2026-11-03, Merge pull request #51 from nerd-nam/fix/llm-conn-closed-retry)
