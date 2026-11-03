@@ -111,11 +111,12 @@ cmd_run() {
   local env_stages env_duration est target
   env_stages=$(jq -r '.spec.runner.env[] | select(.name=="STAGES") | .value' <<<"$manifest")
   env_duration=$(jq -r '.spec.runner.env[] | select(.name=="DURATION") | .value' <<<"$manifest")
-  local env_of; env_of() { jq -r --arg n "$1" '.spec.runner.env[] | select(.name==$n) | .value' <<<"$manifest"; }
+  # env_of 이름 [기본값]: 값이 없거나 비면 기본값(jq 는 없는 변수에 아무 줄도 내지 않아 sed 치환이 먹지 않는다)
+  local env_of; env_of() { local v; v=$(jq -r --arg n "$1" '.spec.runner.env[] | select(.name==$n) | .value' <<<"$manifest"); echo "${v:-${2:-}}"; }
   local job_timeout=0
   if [ "$ai" = 1 ]; then
-    est=$(( $(duration_seconds "$(env_of DURATION_NORMAL | sed 's/^$/5m/')") + $(duration_seconds "$(env_of PAUSE | sed 's/^$/2m/')") + $(duration_seconds "$(env_of DURATION_SURGE | sed 's/^$/5m/')") ))
-    job_timeout=$(env_of JOB_TIMEOUT_SECONDS); job_timeout=${job_timeout:-600}
+    est=$(( $(duration_seconds "$(env_of DURATION_NORMAL 5m)") + $(duration_seconds "$(env_of PAUSE 2m)") + $(duration_seconds "$(env_of DURATION_SURGE 5m)") ))
+    job_timeout=$(env_of JOB_TIMEOUT_SECONDS 600)
   elif [ -n "$env_stages" ]; then est=$(stages_seconds "$env_stages"); else est=$(duration_seconds "${env_duration:-2m}"); fi
   target=$(kc -n "$NS" get configmap k6-env -o jsonpath='{.data.BASE_URL}')
 
@@ -123,7 +124,8 @@ cmd_run() {
   echo "시험      : $SCENARIO"
   echo "대상      : $target (실제 서비스)"
   if [ "$ai" = 1 ]; then
-    echo "흐름      : 정상 분당 $(env_of RATE_NORMAL | sed "s/^$/기본/")건 → 쉼 → 몰림 분당 $(env_of RATE_SURGE | sed "s/^$/기본/")건 (기본: analysis 2→5, guide 3→6)"
+    local dn ds; [ "$SCENARIO" = ai-analysis ] && { dn=2; ds=5; } || { dn=3; ds=6; }   # ai.js DEFAULTS 와 같게
+    echo "흐름      : 정상 분당 $(env_of RATE_NORMAL $dn)건 × $(env_of DURATION_NORMAL 5m) → 쉼 $(env_of PAUSE 2m) → 몰림 분당 $(env_of RATE_SURGE $ds)건 × $(env_of DURATION_SURGE 5m)"
     echo "공고      : $(env_of POSTING_IDS)"
     echo "예상 시간 : 약 $(( (est + 59) / 60 ))분 + 남은 작업 마무리 최대 $(( job_timeout / 60 ))분 (+ 준비 1분)"
   else
