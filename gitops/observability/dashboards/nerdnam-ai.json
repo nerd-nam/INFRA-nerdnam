@@ -88,7 +88,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "1분 동안 끝난 작업 수. completed·failed(BE 작업 실패), skipped(같은 공고 진행 중 409), timeout_k6(10분 넘게 안 끝남). 정상 단계와 몰림 단계를 비교한다",
+      "description": "1분 동안 끝난 작업 수. completed·failed(BE 작업 실패), skipped(같은 공고 진행 중 409), timeout_k6(10분 넘게 안 끝남). 정상 단계와 몰림 단계를 비교한다\nA(분석): failed 가 늘거나, 실패 없이 completed 가 분당 약 3건에서 평평. B(작성 방향): skipped(409)가 늘고 failed 는 거의 없음.",
       "id": 2
     },
     {
@@ -131,7 +131,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "시작 요청부터 completed·failed 를 본 때까지(화면처럼 2.5초마다 조회). 작성 방향 몰림(저하형)에서 늘어나는 값",
+      "description": "시작 요청부터 completed·failed 를 본 때까지(화면처럼 2.5초마다 조회). 작성 방향 몰림(저하형)에서 늘어나는 값\nA: 임베딩 대기로 늘어남. B: BE 큐 대기로 계속 늘어남(정상 10~20초 → 몰림 끝 수 분).",
       "id": 3
     },
     {
@@ -166,7 +166,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "gpu_unavailable(AI 서버 503: 한도·대기열), ai_error, timeout, internal, http_<코드>(시작 요청 자체가 실패). 분석 몰림(장애형)에서 gpu_unavailable 이 늘어난다",
+      "description": "gpu_unavailable(AI 서버 503: 한도·대기열), ai_error, timeout, internal, http_<코드>(시작 요청 자체가 실패). 분석 몰림(장애형)에서 gpu_unavailable 이 늘어난다\nA: gpu_unavailable(장애형일 때). B: 몰림 끝 무렵 소수. 11-03 결과(AI 7f5f828)는 A 도 실패 0, 대기로 흡수됨.",
       "id": 4
     },
     {
@@ -226,12 +226,30 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
         },
         "overrides": []
       },
       "options": {},
-      "description": "BE 가 AI 작업을 처리하는 스레드와 대기열. 큐가 쌓이면 작업 완료 시간이 늘어난다",
+      "description": "BE 가 AI 작업을 처리하는 스레드와 대기열. 큐가 쌓이면 작업 완료 시간이 늘어난다\n점선 10 = ADR-0008 저하 기준(큐가 10 이상 지속). A: 스레드 4개가 차고 큐는 작음. B: 큐가 10 을 넘어 쌓임.",
       "id": 6
     },
     {
@@ -269,12 +287,30 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
         },
         "overrides": []
       },
       "options": {},
-      "description": "서비스 대시보드와 같은 지표. 최근 실패가 3 을 넘는 상태가 10분이면 NerdnamAiJobFailures 알림",
+      "description": "서비스 대시보드와 같은 지표. 최근 실패가 3 을 넘는 상태가 10분이면 NerdnamAiJobFailures 알림\n점선 3 = ADR-0008 장애 기준(최근 실패). A(장애형): 3 을 넘음. B: 거의 0.",
       "id": 7
     },
     {
@@ -316,12 +352,34 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short"
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          }
         },
         "overrides": []
       },
       "options": {},
-      "description": "converse = LLM(Nova), invoke_model = 임베딩(Titan). throttle 이 오르면 Bedrock 분당 한도",
+      "description": "converse = LLM(Nova), invoke_model = 임베딩(Titan). throttle 이 오르면 Bedrock 분당 한도\n점선 20 = Nova(converse), 60 = Titan(invoke_model) 분당 한도 근처. A: invoke_model ok 가 60 근처에서 평평. B: converse throttle 이 오르고 ok 가 20~30 근처.",
       "id": 9
     },
     {
@@ -355,7 +413,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "1 이면 재시도 없음. 1 보다 크면 Bedrock 이 throttle 을 걸고 AI 서버가 다시 보내는 중",
+      "description": "1 이면 재시도 없음. 1 보다 크면 Bedrock 이 throttle 을 걸고 AI 서버가 다시 보내는 중\nA: invoke_model 이 1 보다 커짐. B: converse 가 1 보다 커짐(11-03 약 2배).",
       "id": 10
     },
     {
@@ -398,7 +456,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "AI 서버 안에서 동시 호출 자리를 기다린 시간과, 대기열이 차거나 시간 상한을 넘어 503 으로 거절한 수",
+      "description": "AI 서버 안에서 동시 호출 자리를 기다린 시간과, 대기열이 차거나 시간 상한을 넘어 503 으로 거절한 수\nA: embed 대기가 늘어남. B: llm 대기는 거의 0(병목이 BE 스레드).",
       "id": 11
     },
     {
@@ -432,7 +490,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "BE → AI HTTP 요청 처리 시간. 읽기 제한(/embed·/requirements/extract 120초, /match 300초 등) 10초 전에 AI 가 스스로 503·504 로 끝낸다",
+      "description": "BE → AI HTTP 요청 처리 시간. 읽기 제한(/embed·/requirements/extract 120초, /match 300초 등) 10초 전에 AI 가 스스로 503·504 로 끝낸다\nA: /embed 가 늘어남. B: /guide 가 늘어남.",
       "id": 12
     },
     {
@@ -547,7 +605,7 @@
         "overrides": []
       },
       "options": {},
-      "description": "Bedrock throttle 이 난 trace. trace ID 를 누르면 BE → AI → Bedrock 전체 흐름을 본다(trace 는 3일 보관)",
+      "description": "Bedrock throttle 이 난 trace. trace ID 를 누르면 BE → AI → Bedrock 전체 흐름을 본다(trace 는 3일 보관)\nA: /embed 구간이 긴 trace. B: /guide 구간이 긴 trace.",
       "id": 16
     }
   ]
