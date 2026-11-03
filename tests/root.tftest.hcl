@@ -20,6 +20,7 @@ run "network_and_eks_are_always_planned" {
       coredns                = "v1.0.3-eksbuild.1"
       eks-pod-identity-agent = "v1.0.4-eksbuild.1"
       aws-ebs-csi-driver     = "v1.0.5-eksbuild.1"
+      metrics-server         = "v1.0.6-eksbuild.1"
     }
   }
   assert {

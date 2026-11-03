@@ -46,7 +46,7 @@ NLB만 public-a에 두고 CPU를 private-c에 두는 방식을 단순 대체안�
 
 FE는 Amplify를 사용하지 않고 BE와 같은 CPU 인스턴스에서 별도 Pod로 실행한다. PostgreSQL·Redis는 별도 데이터 EC2에서 Docker Compose로 실행하는 안을 사용한다. GPU 인스턴스에는 vLLM·임베딩 서버를 배치한다. RDS는 사용하지 않는다. EKS CPU·GPU 두 노드 그룹의 목표 노드 수는 각각 1대이며, 데이터 EC2 1대는 Terraform으로 별도 관리한다. Karpenter·Cluster Autoscaler·HPA는 도입하지 않는다.
 
-용어를 구분하면 HPA는 Pod 복제본 수를 조절하고, Karpenter·Cluster Autoscaler는 노드 용량을 조절한다. 이번 구성은 둘 다 자동으로 늘리지 않는다. Managed Node Group은 고정 목표 수의 EC2 서버를 관리하는 용도로 사용한다.
+용어를 구분하면 HPA는 Pod 복제본 수를 조절하고, Karpenter·Cluster Autoscaler는 노드 용량을 조절한다. 이번 구성은 둘 다 자동으로 늘리지 않는다. (변경 2026-11-03: web 만 HPA 1~2개. 노드 수는 그대로 고정. [web-부하-분석.md](web-부하-분석.md)) Managed Node Group은 고정 목표 수의 EC2 서버를 관리하는 용도로 사용한다.
 
 기존 ADR의 Karpenter 자동 생성·자동 종료는 이번 구현 범위에서 제외한다. 따라서 앞서 검토한 Karpenter의 GPU 슬롯 계산 제약도 이번 고정 노드 구성의 장애물이 아니다. GPU 한 장을 두 컨테이너가 공유하도록 하는 device plugin time-slicing 설정과 실제 동작 검증은 여전히 필요하다. 사용하지 않을 때 GPU를 끄는 기능은 별도 요청이 있을 때 정한다.
 

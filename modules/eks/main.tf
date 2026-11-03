@@ -4,7 +4,7 @@ locals {
     platform = { instance_type = var.instance_types.platform, subnet_ids = var.private_subnet_ids }
     data     = { instance_type = var.instance_types.data, subnet_ids = var.private_subnet_ids }
   }
-  addons = toset(["vpc-cni", "kube-proxy", "coredns", "eks-pod-identity-agent", "aws-ebs-csi-driver"])
+  addons = toset(["vpc-cni", "kube-proxy", "coredns", "eks-pod-identity-agent", "aws-ebs-csi-driver", "metrics-server"])
 }
 
 data "aws_iam_policy_document" "cluster_assume" {
@@ -267,6 +267,22 @@ resource "aws_eks_addon" "ebs_csi" {
     service_account = "ebs-csi-controller-sa"
   }
   depends_on = [aws_eks_node_group.this, aws_iam_role_policy_attachment.ebs_csi]
+}
+# Pod CPU·메모리 사용량 API(metrics.k8s.io). web HPA 가 이 값을 보고 replica 를 늘린다(docs/web-부하-분석.md).
+# 운영 도구라 platform 노드에 둔다. kubelet(10250)은 클러스터 보안 그룹 안에서 닿는다.
+resource "aws_eks_addon" "metrics_server" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "metrics-server"
+  addon_version               = local.addon_versions["metrics-server"]
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  configuration_values = jsonencode({
+    replicas     = 1
+    nodeSelector = { workload = "platform" }
+    tolerations  = [{ key = "dedicated", operator = "Equal", value = "platform", effect = "NoSchedule" }]
+    resources    = { requests = { cpu = "20m", memory = "64Mi" }, limits = { memory = "256Mi" } }
+  })
+  depends_on = [aws_eks_node_group.this]
 }
 resource "aws_ecr_repository" "apps" {
   for_each             = toset(["web", "api", "ai"])
