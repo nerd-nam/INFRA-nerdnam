@@ -1,7 +1,7 @@
 {
   "uid": "nerdnam-load",
   "title": "nerdnam 부하 시험",
-  "description": "k6 가 보낸 부하(동시 사용자·요청량)와 같은 시간축의 서버 응답·자원 사용량. 시험 절차는 docs/부하-시험.md",
+  "description": "k6 가 보낸 부하(동시 사용자·요청량)와 같은 시간축의 서버 응답·자원 사용량. 위 \"시험\"은 TestRun 이름(최근이 위). 절차는 docs/부하-시험-실행.md",
   "tags": [
     "nerdnam"
   ],
@@ -9,7 +9,7 @@
   "schemaVersion": 39,
   "version": 1,
   "editable": false,
-  "refresh": "10s",
+  "refresh": "30s",
   "time": {
     "from": "now-30m",
     "to": "now"
@@ -17,27 +17,25 @@
   "templating": {
     "list": [
       {
-        "name": "testid",
+        "name": "testrun",
         "label": "시험",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "prometheus"
         },
+        "description": "k6-operator TestRun 이름(testrun_name). 최근에 끝난 시험이 위. scripts/load-test.sh 가 낸 링크는 그 시험이 골라져 열린다",
         "query": {
-          "query": "label_values(k6_vus, testid)",
-          "refId": "testid"
+          "query": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[$__range:30s]))))",
+          "refId": "testrun"
         },
-        "definition": "label_values(k6_vus, testid)",
+        "definition": "query_result(sort_desc(max by (testrun_name) (max_over_time(timestamp(k6_vus)[$__range:30s]))))",
+        "regex": "/testrun_name=\"([^\"]+)\"/",
         "refresh": 2,
-        "sort": 2,
-        "multi": true,
-        "includeAll": true,
-        "allValue": ".*",
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        }
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "current": {}
       }
     ]
   },
@@ -78,7 +76,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(k6_vus{testid=~\"$testid\", mode=\"concurrency\"})",
+          "expr": "sum(k6_vus{testrun_name=~\"$testrun\", testrun_name=~\"concurrency-.*\"})",
           "legendFormat": "사용자"
         }
       ],
@@ -113,7 +111,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(k6_vus{testid=~\"$testid\", mode=~\"rate|smoke\"})",
+          "expr": "sum(k6_vus{testrun_name=~\"$testrun\", testrun_name=~\"(rate|smoke)-.*\"})",
           "legendFormat": "응답 대기 중"
         },
         {
@@ -122,7 +120,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(k6_vus_max{testid=~\"$testid\", mode=~\"rate|smoke\"})",
+          "expr": "sum(k6_vus_max{testrun_name=~\"$testrun\", testrun_name=~\"(rate|smoke)-.*\"})",
           "legendFormat": "준비된 작업자"
         }
       ],
@@ -157,7 +155,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[1m]))",
+          "expr": "sum(rate(k6_http_reqs_total{testrun_name=~\"$testrun\"}[1m]))",
           "legendFormat": "요청"
         },
         {
@@ -166,7 +164,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_dropped_iterations_total{testid=~\"$testid\"}[1m]))",
+          "expr": "sum(rate(k6_dropped_iterations_total{testrun_name=~\"$testrun\"}[1m]))",
           "legendFormat": "못 보낸 반복"
         }
       ],
@@ -200,7 +198,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (kind) (rate(k6_http_req_duration_seconds{testid=~\"$testid\"}[1m])))",
+          "expr": "histogram_quantile(0.95, sum by (kind) (rate(k6_http_req_duration_seconds{testrun_name=~\"$testrun\"}[1m])))",
           "legendFormat": "{{kind}}"
         }
       ],
@@ -234,7 +232,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(sum(rate(k6_http_reqs_total{testid=~\"$testid\", expected_response=\"false\"}[1m])) or vector(0)) / sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[1m]))",
+          "expr": "(sum(rate(k6_http_reqs_total{testrun_name=~\"$testrun\", expected_response=\"false\"}[1m])) or vector(0)) / sum(rate(k6_http_reqs_total{testrun_name=~\"$testrun\"}[1m]))",
           "legendFormat": "기대하지 않은 상태 코드"
         }
       ],
@@ -268,7 +266,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (status) (rate(k6_http_reqs_total{testid=~\"$testid\"}[1m]))",
+          "expr": "sum by (status) (rate(k6_http_reqs_total{testrun_name=~\"$testrun\"}[1m]))",
           "legendFormat": "{{status}}"
         }
       ],

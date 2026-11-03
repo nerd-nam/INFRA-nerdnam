@@ -134,8 +134,9 @@ grafana:
   ingress:
     enabled: false
   resources:
-    requests: {cpu: 50m, memory: 192Mi}
-    limits: {memory: 512Mi}
+    # 부하 대시보드를 보던 중 512Mi 에서 OOMKilled 3회(2026-11-03, docs/web-부하-분석.md 5절). 평소 약 240Mi
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
   grafana.ini:
     analytics:
       reporting_enabled: false

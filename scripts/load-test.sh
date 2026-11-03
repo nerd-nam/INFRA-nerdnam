@@ -89,13 +89,11 @@ cmd_run() {
 
   preflight
 
-  # 대시보드에서 고를 시험 이름. k6 기본값과 같은 형식(<UTC 시각>-<시험>)으로 미리 정해 링크를 만든다.
-  local testid; testid="$(date -u +%Y-%m-%dT%H:%M)-$SCENARIO"
+  # 대시보드는 TestRun 이름(testrun_name, k6-operator 가 지표에 붙임)으로 시험을 고른다. 이름은 만든 뒤에 정해진다.
   local manifest
-  manifest=$(kc create --dry-run=client -f "gitops/load/testruns/$SCENARIO.yaml" -o json | jq --arg tid "$testid" --arg st "$stages" '
+  manifest=$(kc create --dry-run=client -f "gitops/load/testruns/$SCENARIO.yaml" -o json | jq --arg st "$stages" '
     def setenv($n; $v): map(select(.name != $n)) + [{name: $n, value: $v}];
-    .spec.runner.env |= setenv("TEST_ID"; $tid) | .spec.initializer.env |= setenv("TEST_ID"; $tid)
-    | if $st != "" then (.spec.runner.env |= setenv("STAGES"; $st) | .spec.initializer.env |= setenv("STAGES"; $st)) else . end')
+    if $st != "" then (.spec.runner.env |= setenv("STAGES"; $st) | .spec.initializer.env |= setenv("STAGES"; $st)) else . end')
 
   local env_stages env_duration est target
   env_stages=$(jq -r '.spec.runner.env[] | select(.name=="STAGES") | .value' <<<"$manifest")
@@ -109,7 +107,6 @@ cmd_run() {
   [ -n "$env_stages" ] && echo "단계      : $env_stages" || echo "고정      : 초당 반복 $(jq -r '.spec.runner.env[] | select(.name=="RATE") | .value' <<<"$manifest")회, ${env_duration}"
   echo "예상 시간 : 약 $(( (est + 59) / 60 ))분 (+ 준비 1분)"
   echo "로그인 경로: $([ $session = 1 ] && echo 포함 || echo '제외(비로그인 경로만)')"
-  echo "대시보드 이름(testid): $testid"
 
   if [ "$dry" = 1 ]; then
     kc create --dry-run=server -f - <<<"$manifest" >/dev/null && echo; echo "--dry-run: 서버 검사 통과. 시험은 만들지 않았습니다."
@@ -145,7 +142,7 @@ cmd_run() {
   log "3. 진행"
   local start; start=$(date +%s)
   name=$(kc create -f - -o jsonpath='{.metadata.name}' <<<"$manifest")
-  echo "만듦: $name   (멈추려면 Ctrl+C)"
+  echo "만듦: $name   (대시보드 '시험' 에서 이 이름을 고른다. 멈추려면 Ctrl+C)"
   local stage prev="" waited limit=$((est + 300))
   while :; do
     stage=$(kc -n "$NS" get testrun "$name" -o jsonpath='{.status.stage}' 2>/dev/null || echo "")
@@ -174,7 +171,7 @@ cmd_run() {
   kc -n "$NS" logs -l "k6_cr=$name,runner=true" --tail=45 2>/dev/null || warn "runner 로그를 읽지 못했습니다."
 
   log "5. 결과 (Grafana)"
-  echo "$GRAFANA/d/$DASHBOARD_UID?var-testid=$testid&from=$(( (start - 60) * 1000 ))&to=$(( (end + 60) * 1000 ))"
+  echo "$GRAFANA/d/$DASHBOARD_UID?var-testrun=$name&from=$(( (start - 60) * 1000 ))&to=$(( (end + 60) * 1000 ))"
   echo "읽는 법: docs/부하-시험-실행.md 4절. BE 패널은 30초 늦게 따라온다."
 
   trap - INT TERM

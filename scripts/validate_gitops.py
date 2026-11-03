@@ -936,6 +936,9 @@ def check_queries(local):
         assert not unknown, f'{name}: unknown metrics {sorted(unknown)} (not in tests/fixtures/metrics or CLUSTER_METRICS)'
         # k6 의 Rate 지표는 시험 시작부터의 누적 비율이라 단계별로 읽을 수 없다(2026-11-02 로컬 확인). k6_http_reqs_total 로 구간 비율을 계산한다.
         assert not metrics & K6_CUMULATIVE, f'{name}: cumulative k6 metric {sorted(metrics & K6_CUMULATIVE)}'
+        # k6-operator 는 명령줄 태그(instance_id·testrun_name)로 실행해 스크립트 tags(testid·mode)가 지표에 붙지 않는다(2026-11-03 확인).
+        if any(m.startswith('k6_') for m in metrics):
+            assert not re.search(r'\b(testid|mode)\s*=', expr), f'{name}: k6 metrics have no testid/mode label in the cluster; use testrun_name'
         # job 라벨은 ServiceMonitor 이름(= Service 이름)이다. namespace 와 짝이 맞아야 한다.
         for namespace, job in re.findall(r'namespace="([^"]+)",\s*job="([^"]+)"', expr):
             if namespace != 'monitoring':
