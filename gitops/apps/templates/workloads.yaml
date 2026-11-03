@@ -208,6 +208,14 @@ spec:
             - {name: LLM_MODEL, value: {{ $ai.llmModel | quote }}}
             - {name: EMBED_MODEL_ID, value: {{ $ai.embedModel | quote }}}
             - {name: AWS_EC2_METADATA_DISABLED, value: "true"}   # 노드 역할로 넘어가지 않게
+            # AI 작업 큐(ADR-0009). 비밀번호는 ai-secrets 의 이 키 하나만 받는다(data 비밀값에서 옴, gitops/secrets).
+            # optional: 키가 아직 없어도 HTTP 경로로 뜬다(큐 작업자는 접속하지 못하고 nerdnam_ai_queue_up 0).
+            - {name: AI_QUEUE_ENABLED, value: {{ $ai.aiQueue.enabled | quote }}}
+            - {name: AI_QUEUE_REDIS_HOST, value: {{ $ai.aiQueue.host | quote }}}
+            - {name: AI_QUEUE_REDIS_PORT, value: {{ $ai.aiQueue.port | quote }}}
+            - {name: AI_QUEUE_REDIS_USERNAME, value: {{ $ai.aiQueue.username | quote }}}
+            - name: AI_QUEUE_REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: ai-secrets, key: AI_QUEUE_REDIS_PASSWORD, optional: true}}
             {{- include "apps.otelEnv" (dict "root" $ "name" "ai") | nindent 12 }}
           securityContext: {{- include "apps.containerSecurity" . | nindent 12 }}
           resources: {{ toYaml $ai.resources | nindent 12 }}

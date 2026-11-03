@@ -24,8 +24,11 @@ python_gc_collections_total
 python_gc_objects_collected_total
 python_gc_objects_uncollectable_total
 python_info
-# ADR-0009 큐 작업자 지표(SPEC #100·#101, AI #52). 아직 이미지에 없다: 이름은 ADR 기준이고, AI 큐 작업자가 나오면 실제 출력으로 다시 수집한다.
+# ADR-0009 큐 작업자 지표: AI #54(PR, 미배포) app/metrics.py 의 이름(AI #52 정의). 배포 뒤 실제 출력으로 다시 수집한다.
+nerdnam_ai_inflight
 nerdnam_ai_queue_lag
+nerdnam_ai_queue_pending
+nerdnam_ai_queue_up
 nerdnam_ai_stage_seconds_bucket
 nerdnam_ai_stage_seconds_count
 nerdnam_ai_stage_seconds_sum

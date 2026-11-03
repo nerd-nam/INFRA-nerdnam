@@ -42,6 +42,7 @@ BACKEND_FROM_DATA = {'SPRING_DATASOURCE_PASSWORD': 'postgres-app-password',
                      'SPRING_FLYWAY_PASSWORD': 'postgres-migrator-password',
                      'SPRING_DATA_REDIS_PASSWORD': 'redis-api-password',
                      'AI_QUEUE_REDIS_PASSWORD': 'redis-queue-api-password'}
+AI_FROM_DATA = {'AI_QUEUE_REDIS_PASSWORD': 'redis-queue-ai-password'}
 
 
 def main():
@@ -424,6 +425,13 @@ def check_apps(local):
     assert web_env['API_ORIGIN'] == f'http://api.nerdnam.svc.cluster.local:{ports["api"]}'
     ai_env = {e['name']: e.get('value') for e in deployments['ai']['spec']['template']['spec']['containers'][0]['env']}
     assert ai_env['AI_MODE'] == 'real' and ai_env['LLM_MODEL'].startswith('global.')
+    # AI 작업 큐(ADR-0009): BE·AI 가 같은 큐 Redis 를 각자 계정으로 본다. AI 비밀번호는 ai-secrets 의 그 키 하나에서만.
+    for env, user in ((api_env, 'api'), (ai_env, 'ai')):
+        assert env['AI_QUEUE_REDIS_HOST'] == 'redis-queue.data.svc.cluster.local' and env['AI_QUEUE_REDIS_PORT'] == '6379'
+        assert env['AI_QUEUE_REDIS_USERNAME'] == user and env['AI_QUEUE_ENABLED'] in ('true', 'false')
+    ai_refs = [e for e in deployments['ai']['spec']['template']['spec']['containers'][0]['env'] if 'valueFrom' in e and 'secretKeyRef' in e['valueFrom']]
+    assert [(e['name'], e['valueFrom']['secretKeyRef']['name'], e['valueFrom']['secretKeyRef']['key']) for e in ai_refs] == \
+        [('AI_QUEUE_REDIS_PASSWORD', 'ai-secrets', 'AI_QUEUE_REDIS_PASSWORD')], 'AI gets only the queue Redis password'
     assert all('envFrom' not in d['spec']['template']['spec']['containers'][0] for n, d in deployments.items() if n != 'api')
 
     # 공개 경로: 로그인·API 만 BE, 나머지는 FE. TLS 는 같은 host 의 인증서.
@@ -1090,6 +1098,9 @@ def check_data_layer(local):
     assert mapped == BACKEND_FROM_DATA
     assert all(x['remoteRef']['key'] == data_arn for x in backend['data'])
     assert 'postgres-superuser-password' not in mapped.values()
+    # AI 는 data 비밀값 중 큐 Redis ai 비밀번호 하나만 받는다(ADR-0009).
+    ai_mapped = {x['secretKey']: x['remoteRef']['property'] for x in secrets['ai-secrets']['spec']['data']}
+    assert ai_mapped == AI_FROM_DATA and all(x['remoteRef']['key'] == data_arn for x in secrets['ai-secrets']['spec']['data'])
 
     # 양쪽 namespace 정책: data ingress 와 nerdnam egress 가 같은 Pod/포트를 가리켜야 한다.
     policies = {(x['metadata']['namespace'], x['metadata']['name']): x for x in by_kind['NetworkPolicy']}
