@@ -39,7 +39,7 @@ api:
   javaOptions: -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
   # AI 작업 큐(ADR-0009, BE #67·#68). 켜는 것은 AI 큐 작업자가 배포된 뒤. 비밀번호는 backend-secrets(AI_QUEUE_REDIS_PASSWORD).
   aiQueue:
-    enabled: false
+    enabled: true    # 2026-11-04 큐 경로 켬(#39 2단계). 되돌릴 때는 api 먼저 false
     host: redis-queue.data.svc.cluster.local
     port: 6379
     username: api
@@ -55,7 +55,7 @@ ai:
   embedModel: amazon.titan-embed-text-v2:0
   # AI 작업 큐 작업자(ADR-0009, AI #52·#54). 꺼져 있어도 HTTP 경로는 그대로 받는다. 비밀번호는 ai-secrets(AI_QUEUE_REDIS_PASSWORD).
   aiQueue:
-    enabled: false
+    enabled: true    # 2026-11-04 큐 작업자 켬(#39 2단계)
     host: redis-queue.data.svc.cluster.local
     port: 6379
     username: ai
