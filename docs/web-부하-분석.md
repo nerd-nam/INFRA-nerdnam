@@ -46,8 +46,8 @@
 
 | 문제 | 원인 | 처리 |
 | --- | --- | --- |
-| Grafana 3번 재시작(05:03:57, 05:05:57, 05:11:57) | 부하 대시보드(패널 18개, 10초마다 새로 고침)를 여는 순간 메모리 240→510Mi, 상한 512Mi 에서 OOMKilled | 후속: 메모리 상한 1Gi, 부하 대시보드 새로 고침 30초 |
-| 부하 대시보드 "시험" 선택·VU 패널이 빔 | k6-operator 가 `--tag instance_id --tag testrun_name` 으로 실행 → k6 는 명령줄 태그가 있으면 스크립트 `options.tags`(testid·mode)를 쓰지 않는다. 클러스터 지표에는 `testrun_name` 만 있다 | 후속: 대시보드·`load-test.sh` 링크를 `testrun_name` 기준으로 |
+| Grafana 3번 재시작(05:03:57, 05:05:57, 05:11:57) | 부하 대시보드(패널 18개, 10초마다 새로 고침)를 여는 순간 메모리 240→510Mi, 상한 512Mi 에서 OOMKilled. 시험 변수 기본값 "All"(`testid=~".*"`)이 라벨 없는 모든 k6 시계열과 맞아 조회가 컸다 | 처리: 메모리 상한 1Gi(요청 256Mi), 새로 고침 30초, 시험 변수 "All" 없앰(아래 줄) |
+| 부하 대시보드 "시험" 선택·VU 패널이 빔 | k6-operator 가 `--tag instance_id --tag testrun_name` 으로 실행 → k6 는 명령줄 태그가 있으면 스크립트 `options.tags`(testid·mode)를 쓰지 않는다. 클러스터 지표에는 `testrun_name` 만 있다 | 처리: 시험 변수를 `testrun_name`(최근 순)으로, VU 패널은 이름 앞부분으로, `load-test.sh` 링크도 TestRun 이름으로 |
 | web CPU 요청 100m | 실제 0.4~1.7코어. 스케줄러가 여유를 잘못 계산하고 HPA 기준(요청 대비 %)으로 쓸 수 없다 | 500m 로 |
 
 ## 6. 조치: web HPA (1~2개)
