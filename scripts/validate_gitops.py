@@ -1055,7 +1055,9 @@ def check_data_layer(local):
             if line.strip() and not line.startswith('#')}
     assert conf['appendonly'] == 'no' and conf['save'] == '""' and conf['maxmemory-policy'] == 'noeviction', f'{where}: {conf}'
     acl = config['start.sh']
-    assert 'user default off' in acl and '+@all' not in acl and '@dangerous' not in acl, f'{where}: ACL must list commands explicitly'
+    users = [line for line in acl.splitlines() if line.startswith('user ')]
+    assert users[0].startswith('user default off'), f'{where}: default user must stay off'
+    assert not any('+@all' in u or '@dangerous' in u for u in users[1:]), f'{where}: ACL must list commands explicitly'
     assert quantity(conf['maxmemory'].replace('mb', 'Mi')) < quantity(container['resources']['limits']['memory']), where
     requests['cpu'] += quantity(container['resources']['requests']['cpu'])
     requests['memory'] += quantity(container['resources']['requests']['memory'])
@@ -1078,6 +1080,12 @@ def check_data_layer(local):
                 used_keys.add(ref['key'])
                 assert ref['key'].endswith('-exporter-password'), f'{where}: exporters use their own accounts only'
     assert used_keys == DATA_SECRET_KEYS, f'data secret keys drifted: {sorted(used_keys ^ DATA_SECRET_KEYS)}'
+    # 세션 Redis 는 AOF 를 쓴다. Redis 7.4 는 재시작 때 AOF 의 트랜잭션·스크립트 효과를 default 사용자 권한으로 검사하므로,
+    # default 는 off(인증 불가) 이면서 권한은 모두 있어야 한다. -@all 이면 재시작마다 로그인이 사라지고 지운 키가 되살아난다(2026-11-04).
+    session_acl = next(x for x in by_kind['ConfigMap'] if x['metadata']['name'] == 'redis-config')['data']['start.sh']
+    (default_user,) = [line for line in session_acl.splitlines() if line.startswith('user default ')]
+    assert default_user.split()[2] == 'off' and '+@all' in default_user and '~*' in default_user and '-@all' not in default_user, \
+        f'session Redis default user must be off with full permissions for AOF replay: {default_user}'
     pg_env = {e['name']: e.get('value') for e in sets['postgres']['spec']['template']['spec']['containers'][0]['env']}
     assert pg_env['PGDATA'].startswith('/var/lib/postgresql/data/'), 'PGDATA must be below the EBS mount root'
     assert 'scram-sha-256' in pg_env['POSTGRES_INITDB_ARGS'] and 'POSTGRES_HOST_AUTH_METHOD' not in pg_env
