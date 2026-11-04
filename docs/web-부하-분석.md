@@ -138,3 +138,21 @@ k6 전체: 요청 72,984, 실패 3.0%(전부 `/api/projects` 500), 못 보낸 �
 | BE: `/api/**` 401 때 요청을 세션에 저장하지 않음(`NullRequestCache` 등), 비로그인 요청이 세션을 만들지 않게 | BE 이슈 |
 | 부하 시험 | BE 수정 전까지 돌리지 않는다(돌리면 다시 쌓인다) |
 | 알림 | 동작함: `NerdnamRedisRejectingWrites` 06:45 부터(쓰기 거절 직후), `NerdnamRedisMemoryHigh` 06:53 부터(10분 지속 조건) firing, Discord 전송 실패 0. 알림은 장애 1~2분 만에 갔지만 조치는 사용자 보고 뒤에 했다 — Discord 채널 확인을 운영 습관으로 |
+
+### 9-1. 재발: 재시작 뒤 지운 세션이 되살아남 (2026-11-04)
+
+| 시각(KST) | 일 |
+| --- | --- |
+| 11-04 10:28 | 노드 내리기 → 올리기(`cluster.sh`). redis-0 이 AOF 로 데이터를 다시 읽음 |
+| 직후 | 키 110,673 개, **256MB 가득 참**, BE 세션 쓰기 OOM → 화면 에러. `NOPERM` 오류 **110,660 번**(= 11-03 에 지운 수) |
+| 정리 | 비로그인 세션 110,669 개를 **스크립트 없이 `UNLINK` 한 건씩**(500개씩 묶음) 지움 → 1.64MB, 로그인 세션 3 개 유지 |
+
+**원인:** 11-03 정리는 Lua 스크립트(`EVAL`)로 지웠다. Redis 는 스크립트의 효과를 AOF 에 `MULTI … EXEC` 트랜잭션으로 남기고, **7.4 는 재시작 때 AOF 의 트랜잭션을 `default` 사용자 권한으로 검사한다.** 우리는 `default` 를 `off … -@all`(권한 없음)로 두어, 재시작 때 이 트랜잭션들이 `NOPERM`(`ACLs rules changed between the moment the transaction was accumulated and the EXEC call`)으로 통째로 버려졌다. 한 건씩 남은 세션 쓰기는 다시 실행되고 삭제는 버려져, 지운 세션이 되살아났다.
+
+같은 이유로 **트랜잭션·스크립트로 쓴 데이터도 재시작 때 사라진다.** 11-03 에 로그인한 시험 세션이 재시작 뒤 없어졌다.
+
+로컬 재현(Redis 7.4.12, 같은 설정): `-@all` 이면 트랜잭션·스크립트 효과가 재시작 뒤 사라지고, `default` 에 권한을 주면(`off` 는 그대로) 남는다. `off` 라 인증 없는 접속(`NOAUTH`)과 `default` 로 인증(`user is disabled`)은 계속 막힌다.
+
+**조치:** `gitops/data/files/redis-start.sh` 의 `default` 를 `off resetpass ~* &* +@all` 로. 권한은 재시작 때 AOF 를 다시 실행하는 데만 쓰인다. `validate_gitops.py` 가 `-@all` 로 되돌리면 실패하게 했다. 큐 Redis(`redis-queue`)는 AOF 를 쓰지 않아 해당 없다.
+
+**운영 메모:** 세션 Redis 에서 많은 키를 지울 때는 스크립트·`MULTI` 없이 `UNLINK` 로 지운다(이번 조치 뒤에는 둘 다 안전하지만, 한 건씩이 메모리·지연에도 낫다).
